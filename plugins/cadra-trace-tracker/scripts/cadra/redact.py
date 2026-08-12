@@ -209,14 +209,23 @@ def redact_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]
                     touched += n
                 total += n
             for edit in args.get("edits") or []:
-                if isinstance(edit, dict):
-                    for key, value in list(edit.items()):
-                        if not isinstance(value, str) or key in PATH_ARG_KEYS:
-                            continue
-                        edit[key], n = redact_text(value)
-                        if key in WRITE_CONTENT_KEYS:
-                            touched += n
-                        total += n
+                if not isinstance(edit, dict):
+                    continue
+                if secret_target is not None:
+                    for key in WRITE_CONTENT_KEYS:
+                        if isinstance(edit.get(key), str) and edit[key]:
+                            edit[key] = SECRET_FILE_MARKER
+                            total += 1
+                            touched += 1
+                            if isinstance(path, str):
+                                redacted_paths.add(path)
+                for key, value in list(edit.items()):
+                    if not isinstance(value, str) or key in PATH_ARG_KEYS:
+                        continue
+                    edit[key], n = redact_text(value)
+                    if key in WRITE_CONTENT_KEYS:
+                        touched += n
+                    total += n
             if touched and isinstance(path, str):
                 redacted_paths.add(path)
     return messages, redacted_paths, total

@@ -174,6 +174,23 @@ def test_writing_a_secrets_file_is_dropped_and_reported_as_truncated():
     assert paths == {".env.local"}
 
 
+def test_nested_env_file_edits_are_dropped_and_reported():
+    """MultiEdit into .env must drop bodies whole — SMTP_PASS= slips past patterns."""
+    body = "SMTP_PASS=Tr0ub4dor&3\nDATABASE_URL=postgres://app:hunter2@db/prod\n"
+    messages = [{"role": "assistant", "tool_calls": [{
+        "id": "t1", "type": "function", "function": {
+            "name": "MultiEdit", "arguments": {
+                "file_path": ".env",
+                "edits": [{"old_string": "x", "new_string": body}],
+            }}}]}]
+    out, paths, count = redact_messages(messages)
+    edits = out[0]["tool_calls"][0]["function"]["arguments"]["edits"]
+    assert count >= 1
+    assert edits[0]["new_string"] == SECRET_FILE_MARKER
+    assert paths == {".env"}
+    assert "SMTP_PASS=" not in edits[0]["new_string"]
+
+
 def test_env_templates_are_kept():
     """Placeholders, not secrets. Reading .env.example is orientation work worth
     crediting, and dropping it would be pure loss."""
