@@ -7,7 +7,6 @@ submission, after the work is done.
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -133,8 +132,9 @@ def main(argv: list[str] | None = None) -> int:
     except OSError:
         print(f"NOTE could not remove {source}; delete it yourself.")
     print(f"CONNECTED workspace={workspace}")
-    print("Trace submission is ready. Say 'submit my trace' when you want to send "
-          "your work.")
+    print("Trace submission is ready. Always start `claude` from this workspace "
+          "root so your sessions are discoverable. Say 'submit my trace' when "
+          "you want to send your work.")
     return 0
 
 

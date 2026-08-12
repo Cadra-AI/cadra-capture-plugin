@@ -51,15 +51,16 @@ def _save_state(workspace: Path, state: dict) -> None:
         json.dump(state, handle, indent=2)
 
 
-def current_remote(workspace: Path, cfg: dict) -> str | None:
-    """The remote as it is now, not as it was at connect.
+def current_remote(workspace: Path) -> str | None:
+    """The remote as it is now — never the value frozen in config.json (§5.1).
 
     It legitimately moves during an assessment: the candidate clones the
     template repo, works for days, then creates their own repo and re-points
-    origin. Reporting the connect-time value would describe a repo they have
-    since left. Falls back to the recorded one only when git cannot answer.
+    origin. Falling back to the connect-time value would describe a repo they
+    have since left, exactly when the evidence matters most. If git cannot
+    answer, send null; the server records absence, not a stale claim.
     """
-    return repo.git_remote(workspace) or cfg.get("git_remote")
+    return repo.git_remote(workspace)
 
 
 def _previewed_cwds(start: Path) -> dict[str, list[str]]:
@@ -102,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     cfg = config.load(workspace)
     state = _load_state(workspace)
     branch = repo.git_branch(workspace)
-    remote = current_remote(workspace, cfg)
+    remote = current_remote(workspace)
 
     sessions, notes = collect.discover(_projects_root(args.projects_root), workspace)
     for note in notes:
@@ -161,9 +162,15 @@ def main(argv: list[str] | None = None) -> int:
                   "unreadable line(s) skipped")
 
         if args.dry_run:
+            # Byte size is part of the consent surface (§5.2): candidates need
+            # to know how large the upload is before agreeing.
+            approx_bytes = sum(
+                len(json.dumps(chunk_messages, ensure_ascii=False).encode("utf-8"))
+                for _, chunk_messages in chunks
+            )
             print(f"DRY-RUN {session.session_id[:8]} — {len(messages)} messages, "
-                  f"{len(chunks)} chunk(s), {redacted_count} redaction(s). "
-                  "Nothing was sent.")
+                  f"{len(chunks)} chunk(s), {approx_bytes} bytes, "
+                  f"{redacted_count} redaction(s). Nothing was sent.")
             continue
 
         receipt: dict = {}

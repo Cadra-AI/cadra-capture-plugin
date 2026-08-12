@@ -42,6 +42,8 @@ def test_submission_posts_the_expected_envelope(connected: Path, transcripts: Pa
                      "messages": len(body["messages"]), "received_at": "now"}
 
     monkeypatch.setattr(cadra_submit.client, "post_chunk", _post)
+    monkeypatch.setattr(cadra_submit.repo, "git_remote",
+                        lambda ws: "https://github.com/c/s.git")
     code = cadra_submit.main(["--workspace", str(connected),
                               "--projects-root", str(transcripts)])
     assert code == 0
@@ -134,10 +136,27 @@ def test_dry_run_sends_nothing_and_advances_no_state(connected: Path,
     out = capsys.readouterr().out
     assert code == 0
     assert "DRY-RUN" in out
+    assert "bytes" in out
     assert not (config.config_dir(connected) / "state.json").exists()
     preview = json.loads(
         (config.config_dir(connected) / "last-preview.json").read_text(encoding="utf-8"))
     assert preview["sessions"][0]["message_count"] == 2
+
+
+def test_submit_does_not_fall_back_to_config_git_remote(
+    connected: Path, transcripts: Path, monkeypatch
+):
+    """§5.1: when git cannot answer, send null — never the connect-time remote."""
+    monkeypatch.setattr(cadra_submit.repo, "git_remote", lambda ws: None)
+    sent: list[dict] = []
+    monkeypatch.setattr(cadra_submit.client, "post_chunk",
+                        lambda *, base_url, token, body: (sent.append(body),
+                                                          (202, {"messages": 0}))[1])
+    cadra_submit.main(["--workspace", str(connected),
+                       "--projects-root", str(transcripts)])
+    assert sent[0]["binding"]["git_remote"] is None
+    # Fixture config still holds the connect-time value — must not leak into envelope.
+    assert config.load(connected)["git_remote"] == "https://github.com/c/s.git"
 
 
 def test_dry_run_preview_is_what_a_real_submit_sends(connected: Path,

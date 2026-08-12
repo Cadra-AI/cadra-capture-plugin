@@ -26,7 +26,7 @@ the cadra-connect skill instead.
 
 2. Show the user what would be sent, and **ask them to confirm before step 3**:
    - the `FOUND` count and, per session, the `DRY-RUN` line (messages, chunks,
-     redactions);
+     bytes, redactions);
    - every `CWD` line. This matters: a session that started in the workspace may
      have moved elsewhere while running, and those directories are listed here.
      If any of them look private or unrelated, say so plainly — the user can

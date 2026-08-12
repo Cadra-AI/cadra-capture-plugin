@@ -34,9 +34,13 @@ deadline.
 
    `<PROXY_URL>` is the address shown on the Setup page (default
    `https://proxy.cadra.info`). It must be `https://`.
-5. Report the result in plain language. On `CONNECTED`, tell the user trace
-   submission is ready and they can say "submit my trace" whenever they want to
-   send their work. On `FAILED`, relay the reason and what to do about it.
+5. Report the result in plain language. On `CONNECTED`, tell the user:
+   - trace submission is ready and they can say "submit my trace" whenever they
+     want to send their work;
+   - **always start `claude` from this workspace root** so sessions are
+     discoverable — sessions launched from a parent or unrelated folder will not
+     be found.
+   On `FAILED`, relay the reason and what to do about it.
 
 ## Rules
 

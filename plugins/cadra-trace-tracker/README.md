@@ -26,9 +26,15 @@ claude plugin install cadra-trace-tracker@cadra
 ```
 
 Then, in the root of your solution repository, run `claude` and say
-"connect to Cadra". You will be asked for the assessment token and proxy URL
-shown on your Cadra Setup page. Requires Python 3.11+ on `PATH`; the plugin uses
-the standard library only, so there is nothing to `pip install`.
+"connect to Cadra". The plugin prepares `.cadra/` and asks you to **paste the
+assessment token from your Cadra Setup page into `.cadra/token.txt` yourself** —
+never into the chat (chat is recorded in the transcript that later gets
+uploaded). You will also provide the proxy URL from Setup (must be `https://`).
+Requires Python 3.11+ on `PATH`; the plugin uses the standard library only, so
+there is nothing to `pip install`.
+
+Always start `claude` from that same solution root so your sessions are found
+when you submit.
 
 ## Filesystem contract
 
