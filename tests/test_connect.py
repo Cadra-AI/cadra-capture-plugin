@@ -282,3 +282,25 @@ def test_the_verified_destination_is_the_resolved_one(workspace: Path, monkeypat
     _paste(workspace, _token_with({"proxy_base_url": "https://attacker.example"}))
     cadra_connect.main(["--workspace", str(workspace)])
     assert seen == [config.DEFAULT_PROXY_BASE_URL]
+
+
+def test_connect_accepts_a_loopback_proxy_for_local_testing(workspace: Path, monkeypatch):
+    """Connect and submit must agree on what is allowed. If connect kept a
+    stricter https-only rule, a local proxy would be unreachable at connect even
+    though client.is_allowed_base_url would later permit the submit."""
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    code = cadra_connect.main(["--workspace", str(workspace),
+                               "--proxy", "http://localhost:8080"])
+    assert code == 0
+    assert config.load(workspace)["proxy_base_url"] == "http://localhost:8080"
+
+
+def test_connect_refuses_a_userinfo_spoofed_loopback_proxy(workspace: Path, monkeypatch):
+    """"localhost:8080" before an @ is userinfo; the real host is evil.example."""
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    code = cadra_connect.main(["--workspace", str(workspace),
+                               "--proxy", "http://localhost:8080@evil.example"])
+    assert code == 1
+    assert not config.config_path(workspace).exists()

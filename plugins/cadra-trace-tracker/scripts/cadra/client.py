@@ -9,10 +9,39 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 TIMEOUT_S = 120
 MAX_RESPONSE_BYTES = 1024 * 1024
+
+# Loopback hostnames, matched EXACTLY against the parsed host — never by prefix.
+# "http://localhost:8080@evil.example" passes a startswith("http://localhost:")
+# check, but there "localhost:8080" is userinfo and the real host is
+# evil.example, so a prefix test ships the Authorization header off-box. Parsing
+# is the whole defence; .hostname ignores userinfo and lowercases for us.
+_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+
+
+def is_allowed_base_url(url: str) -> bool:
+    """True if the token may be sent here.
+
+    https anywhere: TLS protects the header in transit, and _NoRedirects keeps it
+    on the host we chose. Plain http ONLY on loopback with an explicit port,
+    because those bytes never reach a network where anyone could read them —
+    that is what makes local proxy testing possible without a tunnel.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url or "")
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return False  # malformed authority, e.g. a non-numeric port
+    if not host:
+        return False
+    if parts.scheme == "https":
+        return True
+    # A port is required so the carve-out can never widen to a bare hostname.
+    return parts.scheme == "http" and host in _LOOPBACK_HOSTS and port is not None
 
 
 class _NoRedirects(urllib.request.HTTPRedirectHandler):
@@ -28,9 +57,10 @@ _OPENER = urllib.request.build_opener(_NoRedirects)
 
 
 def _call(method: str, url: str, token: str, body: dict | None) -> tuple[int, dict]:
-    if not url.startswith("https://"):
+    if not is_allowed_base_url(url):
         return 0, {"error": {"code": "insecure_url",
-                             "message": "the proxy address must be https://"}}
+                             "message": "the proxy address must be https:// "
+                                        "(or http:// on localhost)"}}
     data = json.dumps(body).encode("utf-8") if body is not None else None
     request = urllib.request.Request(
         url, data=data, method=method,

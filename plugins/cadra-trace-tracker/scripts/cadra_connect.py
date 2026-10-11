@@ -121,8 +121,11 @@ def main(argv: list[str] | None = None) -> int:
     # bearer credential is sent. The address is the same for every candidate in
     # an environment, so it is client config — see config.DEFAULT_PROXY_BASE_URL.
     proxy = config.resolve_proxy(args.proxy)
-    if not proxy.startswith("https://"):
-        print("FAILED: the proxy address must be an https:// URL. Nothing was saved.")
+    # Same predicate client enforces, so connect and submit can never disagree
+    # about what is reachable.
+    if not client.is_allowed_base_url(proxy):
+        print("FAILED: the proxy address must be an https:// URL "
+              "(or http:// on localhost for local testing). Nothing was saved.")
         return 1
 
     ok, detail = verify_token(proxy_base_url=proxy, token=token,
