@@ -341,14 +341,35 @@ def test_already_connected_does_not_ask_for_a_token(workspace: Path, monkeypatch
     assert "paste" not in out.lower()
 
 
-def test_an_unconnected_workspace_still_asks_for_the_token(workspace: Path, capsys):
-    """The original message is correct when there is genuinely nothing yet."""
-    cadra_connect.main(["--workspace", str(workspace), "--init"])
-    capsys.readouterr()
+def test_connect_on_a_fresh_workspace_prepares_it_instead_of_failing(
+    workspace: Path, capsys
+):
+    """"connect" on an unprepared folder should PREPARE it, not lecture.
+
+    --init is only a gitignore entry plus an mkdir — no network, no credential,
+    idempotent. Refusing and printing instructions made the user do by hand what
+    the command could simply do, and the instructions named a python invocation
+    at someone whose whole interface is saying "connect to Cadra".
+    """
     code = cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
-    assert code == 1
+    assert code == 0
     out = capsys.readouterr().out
-    assert "no token file" in out.lower()
+    assert "READY" in out
+    assert str(cadra_connect.token_path(workspace)) in out
+    # It actually prepared the folder, in the gitignore-before-mkdir order.
+    assert ".cadra/" in (workspace / ".gitignore").read_text(encoding="utf-8")
+    assert cadra_connect.token_path(workspace).parent.is_dir()
+
+
+def test_a_fresh_workspace_is_not_told_to_run_a_script(workspace: Path, capsys):
+    """The reader is an agent relaying to a human. Neither should be handed a
+    python command line to retype."""
+    cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    out = capsys.readouterr().out
+    assert "python" not in out.lower()
+    assert "--init" not in out
+    assert "--workspace" not in out
+    assert "FAILED" not in out
 
 
 def test_an_expired_stored_token_is_reported_as_expired_not_as_connected(
@@ -381,22 +402,10 @@ def test_an_expired_stored_token_is_reported_as_expired_not_as_connected(
 
 
 # ── failure messages must name a runnable next step ──────────────────────────
-# These are read by the agent and relayed to a human. "Run with --init first"
-# named an internal flag without saying run WHAT, so neither reader could act:
-# the agent had no command to run, and a candidate has no business seeing a CLI
-# flag at all. SKILL.md step 5 says "relay the reason and what to do about it",
-# which only works if the message carries both.
-
-def test_the_unprepared_message_gives_a_command_that_can_actually_be_run(
-    workspace: Path, capsys
-):
-    (workspace / ".cadra").mkdir(parents=True, exist_ok=True)
-    code = cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
-    assert code == 1
-    out = capsys.readouterr().out
-    assert "cadra_connect.py" in out, "must name the script, not just the flag"
-    assert "--init" in out
-    assert str(workspace) in out, "must name the workspace it should be run against"
+# These are read by the agent and relayed to a human, so they must state a
+# situation and an action the READER can take — never an internal flag, and
+# never a command line to retype. Where the action is something the script can
+# simply do (preparing .cadra/), it does it rather than asking.
 
 
 def test_a_rejected_proxy_address_is_echoed_back(workspace: Path, monkeypatch, capsys):

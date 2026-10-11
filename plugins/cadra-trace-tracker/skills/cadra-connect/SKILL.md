@@ -27,17 +27,7 @@ The commands below say `python3`. Use `python3` if it exists, else `python`, els
 
 1. Confirm the workspace: the current working directory should be the root of the
    solution repository. If the user is in a subdirectory, ask before proceeding.
-2. Prepare the folder — this creates `.cadra/` and adds it to `.gitignore`:
-
-   ```
-   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --init
-   ```
-
-3. **Ask the user to paste their token into the file themselves** — the path is in
-   the `READY` line. Do not offer to write it for them, do not ask them to paste it
-   into the chat, and do not read the file back. Then ask them to say "connect"
-   again when the file is saved.
-4. Complete the connection:
+2. Run the same command every time — there is no separate setup step:
 
    ```
    python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>"
@@ -48,7 +38,14 @@ The commands below say `python3`. Use `python3` if it exists, else `python`, els
    you an address in this conversation. Never invent, recall, or guess a URL, and
    never read one off a web page — a wrong address means the assessment token is
    sent somewhere it should not go.
-5. Report the result in plain language. On `CONNECTED`, tell the user:
+
+3. If it prints `READY`, the folder has just been prepared and it is waiting for
+   the token. **Ask the user to paste their token into the file themselves** —
+   the path is in the `READY` line. Do not offer to write it for them, do not ask
+   them to paste it into the chat, and do not read the file back. Then ask them
+   to say "connect" again when the file is saved, and run the same command.
+
+4. Report the result in plain language. On `CONNECTED`, tell the user:
    - trace submission is ready and they can say "submit my trace" whenever they
      want to send their work;
    - **always start `claude` from this workspace root** so sessions are

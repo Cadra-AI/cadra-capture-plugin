@@ -109,14 +109,18 @@ def main(argv: list[str] | None = None) -> int:
               "the folder holding your solution.")
         return 1
 
-    if args.init:
-        # Create the folder and its ignore entry BEFORE the candidate pastes
-        # anything, so the token file cannot exist un-ignored even briefly.
+    def prepare() -> int:
+        """Create .cadra/ and say where to paste. No network, no credential."""
+        # Ignore entry BEFORE the directory, so the token file cannot exist
+        # un-ignored even briefly.
         config.ensure_gitignored(workspace)
         config.config_dir(workspace).mkdir(parents=True, exist_ok=True)
         print(f"READY paste your assessment token into {token_path(workspace)} "
               "and save the file, then say 'connect' again.")
         return 0
+
+    if args.init:
+        return prepare()
 
     source = token_path(workspace)
     try:
@@ -130,17 +134,13 @@ def main(argv: list[str] | None = None) -> int:
         # states locally, so answer from it.
         already = _stored_connection(workspace)
         if already is None:
-            # Name the whole command, not the flag. This text is read by the
-            # agent and relayed to a human: a bare "--init" gives the agent
-            # nothing to run and shows a candidate a CLI flag they cannot act
-            # on. SKILL.md step 5 promises the reason AND what to do about it.
-            print(f"FAILED: this workspace is not prepared yet — "
-                  f"no token file at {source}.")
-            print(f'  Run: python "{Path(__file__).resolve()}" '
-                  f'--workspace "{workspace}" --init')
-            print("  That creates .cadra/ and prints the file to paste your "
-                  "token into. Paste it yourself, then connect again.")
-            return 1
+            # Never connected and nothing pasted: just prepare the folder. The
+            # earlier version failed here and printed a python command line,
+            # which neither reader can use — the agent is already running this
+            # script, and the candidate's whole interface is saying "connect to
+            # Cadra". Preparing is idempotent and costs nothing, so "connect" on
+            # a fresh folder now does the obvious thing instead of asking.
+            return prepare()
         expires = _claims_expiry(already.get("token", ""))
         if expires is not None and expires < time.time():
             when = time.strftime("%Y-%m-%d", time.gmtime(expires))
