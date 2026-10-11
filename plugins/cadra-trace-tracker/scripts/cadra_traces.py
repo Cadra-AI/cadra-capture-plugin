@@ -13,6 +13,13 @@ from cadra import client, config
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Host engines pipe stdout in the platform's default encoding; a non-ASCII
+    # trace title must not crash the run.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default=".")
     args = parser.parse_args(argv)

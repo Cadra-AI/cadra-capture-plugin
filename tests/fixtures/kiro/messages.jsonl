@@ -1,0 +1,13 @@
+{"id": "m01", "timestamp": "2026-08-11T09:00:00Z", "payload": {"type": "session_start", "content": "SYNTHETIC-SYSTEM-PROMPT"}}
+{"id": "m02", "timestamp": "2026-08-11T09:00:01Z", "payload": {"type": "turn_start"}}
+{"id": "m03", "timestamp": "2026-08-11T09:00:01Z", "payload": {"type": "steering_inclusion", "content": "SYNTHETIC-STEERING"}}
+{"id": "m04", "timestamp": "2026-08-11T09:00:02Z", "payload": {"type": "user", "content": "Add a function to src/a.py"}}
+{"id": "m05", "timestamp": "2026-08-11T09:00:03Z", "payload": {"type": "agent_note", "content": "SYNTHETIC-NOTE"}}
+{"id": "m06", "timestamp": "2026-08-11T09:00:04Z", "payload": {"type": "assistant", "content": "Reading the file first.", "executionId": "exec-0001"}}
+{"id": "m07", "timestamp": "2026-08-11T09:00:05Z", "payload": {"type": "tool_call", "toolCallId": "tool-0001", "toolName": "readFile", "args": {"path": "{WS}/src/a.py"}, "status": "completed", "kind": "read", "title": "Read file"}}
+{"id": "m08", "timestamp": "2026-08-11T09:00:06Z", "payload": {"type": "tool_result", "toolCallId": "tool-0001", "content": "def a():\n    return 1\n", "success": true}}
+{"id": "m09", "timestamp": "2026-08-11T09:00:07Z", "payload": {"type": "tool_call", "toolCallId": "tool-0002", "toolName": "executeBash", "args": {"command": "pytest -q", "cwd": "{WS}/sub"}, "status": "completed", "kind": "execute", "title": "Run tests"}}
+{"id": "m10", "timestamp": "2026-08-11T09:00:08Z", "payload": {"type": "tool_result", "toolCallId": "tool-0002", "content": "Output truncated; full output saved to tool-outputs/execute_bash-0000.txt", "success": true}}
+{"id": "m11", "timestamp": "2026-08-11T09:00:09Z", "payload": {"type": "sub_agent_start", "subSessionId": "sub-0001", "subAgentName": "general-task-execution", "parentExecutionId": "exec-0001", "prompt": "Add function b to src/a.py"}}
+{"id": "m12", "timestamp": "2026-08-11T09:00:20Z", "payload": {"type": "sub_agent_complete", "subSessionId": "sub-0001"}}
+{"id": "m13", "timestamp": "2026-08-11T09:00:21Z", "payload": {"type": "turn_end"}}

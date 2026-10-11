@@ -5,13 +5,15 @@ All Claude Code format knowledge lives here so the server stays agent-agnostic.
 from __future__ import annotations
 
 import json
+import ntpath
 import os
 import re
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from cadra.collect import Session
 
 PATH_ARG_KEYS = ("file_path", "filePath", "path", "target_file", "notebook_path")
+_DRIVE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _LINENO_RE = re.compile(r"^\s*\d+\t")
 IMAGE_PLACEHOLDER = "[image removed before upload]"
 
@@ -22,6 +24,10 @@ def rebase_path(value: str, workspace: Path) -> str:
     if not isinstance(value, str) or not value:
         return value
     try:
+        # A drive-letter workspace is compared with Windows rules (case-blind,
+        # either separator) on every OS, so the result never depends on the host.
+        if _DRIVE_RE.match(str(workspace)):
+            return _rebase_windows(value, str(workspace))
         candidate = Path(value)
         if not candidate.is_absolute():
             return value.replace("\\", "/")
@@ -35,8 +41,15 @@ def rebase_path(value: str, workspace: Path) -> str:
     except (OSError, ValueError):
         return value
     return value.replace("\\", "/")
-
-
+def _rebase_windows(value: str, workspace: str) -> str:
+    candidate = PureWindowsPath(value)
+    if not candidate.is_absolute():
+        return value.replace("\\", "/")
+    root = PureWindowsPath(ntpath.normpath(workspace))
+    resolved = PureWindowsPath(ntpath.normpath(value))
+    if resolved == root or root in resolved.parents:
+        return resolved.relative_to(root).as_posix()
+    return value.replace("\\", "/")
 def strip_line_numbers(text: str) -> str:
     """Claude Code prefixes read results with '<n>\\t' (§7.2)."""
     if not isinstance(text, str) or "\t" not in text:

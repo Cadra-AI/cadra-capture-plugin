@@ -1,7 +1,7 @@
 {
   "name": "cadra-trace-tracker",
-  "version": "3.0.0",
-  "description": "Submit your Claude Code work sessions to Cadra for assessment. Skills only — nothing is captured or sent unless you ask. All state lives in the workspace's .cadra/ folder, which is gitignored.",
+  "version": "3.1.0",
+  "description": "Submit your coding-agent work sessions (Claude Code, Codex, Kiro, Copilot CLI, Cursor, Antigravity, OpenCode) to Cadra for assessment. Skills only: nothing is read or sent unless you ask. All state lives in the workspace's .cadra/ folder, which is gitignored.",
   "author": {
     "name": "Cadra",
     "email": "nishant@cadra.info"

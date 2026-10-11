@@ -1,7 +1,8 @@
-<!-- plugins/cadra-trace-tracker/skills/cadra-connect/SKILL.md -->
 ---
+name: cadra-connect
 description: Connect this workspace to a Cadra assessment so work sessions can be submitted. Use when the user says "connect to Cadra", "set up my assessment", "register my workspace", "my Cadra token is wrong", or when cadra-submit reports the workspace is not connected.
 ---
+<!-- plugins/cadra-trace-tracker/skills/cadra-connect/SKILL.md -->
 
 # Skill: cadra-connect
 **Plugin:** cadra-trace-tracker
@@ -12,6 +13,16 @@ Register this workspace against a Cadra coding assessment and prove the token
 works immediately — so a bad token surfaces on day one rather than at the
 deadline.
 
+## Plugin root
+
+`<PLUGIN_ROOT>` is the absolute path two directories above this SKILL.md (the
+plugin folder). Hosts that set `CLAUDE_PLUGIN_ROOT` or `PLUGIN_ROOT` fill it in
+for you; otherwise substitute it. If this SKILL.md was reached through a
+symlink (OpenCode installs), resolve it first with `realpath`.
+
+The commands below say `python3`. Use `python3` if it exists, else `python`, else
+`py -3` (typical on Windows). The script paths and arguments stay the same.
+
 ## Steps
 
 1. Confirm the workspace: the current working directory should be the root of the
@@ -19,7 +30,7 @@ deadline.
 2. Prepare the folder — this creates `.cadra/` and adds it to `.gitignore`:
 
    ```
-   python "$CLAUDE_PLUGIN_ROOT/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --init
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --init
    ```
 
 3. **Ask the user to paste their token into the file themselves** — the path is in
@@ -29,7 +40,7 @@ deadline.
 4. Complete the connection:
 
    ```
-   python "$CLAUDE_PLUGIN_ROOT/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --proxy "<PROXY_URL>"
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --proxy "<PROXY_URL>"
    ```
 
    `<PROXY_URL>` is the address shown on the Setup page (default

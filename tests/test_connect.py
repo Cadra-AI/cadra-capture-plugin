@@ -48,6 +48,20 @@ def test_connect_records_the_git_remote_when_present(workspace: Path, monkeypatc
     assert config.load(workspace)["git_remote"] == "https://github.com/c/s.git"
 
 
+def test_offline_capture_token_is_accepted(workspace: Path, monkeypatch):
+    """Offline capture tokens carry capture_id, never coding_assessment_id."""
+    import base64
+
+    def seg(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+    token = (f"{seg({'alg': 'HS256'})}."
+             f"{seg({'type': 'f18-offline-capture', 'capture_id': 'c-1', 'exp': 99999999999})}"
+             ".sig")
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    assert _connect(workspace, token) == 0
+    assert config.load(workspace)["token"] == token
+
+
 def test_expired_token_is_refused_before_anything_is_written(workspace: Path):
     code = _connect(workspace, _token(exp=1))
     assert code == 1

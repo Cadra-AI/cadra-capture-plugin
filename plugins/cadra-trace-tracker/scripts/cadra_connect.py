@@ -53,6 +53,13 @@ def token_path(workspace: Path) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Host engines pipe stdout in the platform's default encoding; a non-ASCII
+    # path must not crash the run.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--proxy", default="")
@@ -98,7 +105,10 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"FAILED: {exc}. Re-copy the token from your Setup page.")
         return 1
-    if not claims.get("coding_assessment_id"):
+    # Live assessments carry coding_assessment_id; offline capture tokens
+    # (type f18-offline-capture) carry capture_id instead. The server decides
+    # which one it accepts; this is only a fail-fast check for a wrong paste.
+    if not (claims.get("coding_assessment_id") or claims.get("capture_id")):
         print("FAILED: this token carries no assessment. Re-copy it from Setup.")
         return 1
     exp = claims.get("exp")

@@ -20,16 +20,40 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from cadra import adapt, client, collect, config, envelope, redact, repo
+from cadra import (adapt, antigravity, client, codex, collect, config, copilot, cursor,
+                   envelope, kiro, opencode, redact, repo)
 
 CAPTURE_VERSION = "3.0.0"
 
 
-def _projects_root(override: str | None) -> Path:
-    return Path(override) if override else Path.home() / ".claude" / "projects"
+#: host name -> (default transcript root, discover, load_session). The name is
+#: also what the chunk reports as `agent.name`. Every root is read-only.
+def _claude_root() -> Path:
+    home = os.environ.get("CLAUDE_CONFIG_DIR")
+    return (Path(home) if home else Path.home() / ".claude") / "projects"
+HOSTS = {
+    "claude-code": (_claude_root,
+                    collect.discover, adapt.load_session),
+    codex.HOST: (codex.default_root, codex.discover, codex.load_session),
+    kiro.HOST: (kiro.default_root, kiro.discover, kiro.load_session),
+    copilot.HOST: (copilot.default_root, copilot.discover, copilot.load_session),
+    cursor.HOST: (cursor.default_root, cursor.discover, cursor.load_session),
+    antigravity.HOST: (antigravity.default_root, antigravity.discover,
+                       antigravity.load_session),
+    opencode.HOST: (opencode.default_root, opencode.discover, opencode.load_session),
+}
+
+
+def _state_key(session: collect.Session) -> str:
+    """Claude keeps the bare id so existing state.json files stay valid; other hosts
+    are prefixed so two hosts can never collide on the same id."""
+    if session.host == "claude-code":
+        return session.session_id
+    return f"{session.host}:{session.session_id}"
 
 
 def _state_path(workspace: Path) -> Path:
@@ -47,8 +71,11 @@ def _load_state(workspace: Path) -> dict:
 
 def _save_state(workspace: Path, state: dict) -> None:
     config.config_dir(workspace).mkdir(parents=True, exist_ok=True)
-    with open(_state_path(workspace), "w", encoding="utf-8") as handle:
+    target = _state_path(workspace)
+    tmp = target.with_suffix(".tmp")
+    with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(state, handle, indent=2)
+    tmp.replace(target)  # atomic on POSIX and Windows; a crash cannot truncate state
 
 
 def current_remote(workspace: Path) -> str | None:
@@ -82,17 +109,42 @@ def _previewed_cwds(start: Path) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for entry in (previous or {}).get("sessions") or []:
         if isinstance(entry, dict) and isinstance(entry.get("session_id"), str):
-            out[entry["session_id"]] = list(entry.get("cwds") or [])
+            # Keyed like state.json: only non-Claude entries carry a `host`.
+            host = entry.get("host")
+            key = f"{host}:{entry['session_id']}" if host else entry["session_id"]
+            out[key] = list(entry.get("cwds") or [])
     return out
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Host engines pipe stdout in the platform's default encoding; a non-ASCII
+    # path or message must not crash the run mid-send.
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):
+            pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default=".")
+    parser.add_argument("--host", action="append", choices=list(HOSTS),
+                        help="only collect this host's sessions (repeatable; default all)")
+    parser.add_argument("--claude-root", default=None)
+    # The original name for --claude-root, kept so existing invocations still work.
     parser.add_argument("--projects-root", default=None)
+    parser.add_argument("--codex-root", default=None)
+    parser.add_argument("--kiro-root", default=None)
+    parser.add_argument("--copilot-root", default=None)
+    parser.add_argument("--cursor-root", default=None)
+    parser.add_argument("--antigravity-root", default=None)
+    parser.add_argument("--opencode-root", default=None)
     parser.add_argument("--dry-run", action="store_true",
                         help="build and preview the payload; send nothing")
     args = parser.parse_args(argv)
+    roots = {"claude-code": args.claude_root or args.projects_root,
+             codex.HOST: args.codex_root, kiro.HOST: args.kiro_root,
+             copilot.HOST: args.copilot_root, cursor.HOST: args.cursor_root,
+             antigravity.HOST: args.antigravity_root,
+             opencode.HOST: args.opencode_root}
 
     previewed_cwds = _previewed_cwds(Path(args.workspace))
     workspace = config.find_workspace(Path(args.workspace))
@@ -105,7 +157,15 @@ def main(argv: list[str] | None = None) -> int:
     branch = repo.git_branch(workspace)
     remote = current_remote(workspace)
 
-    sessions, notes = collect.discover(_projects_root(args.projects_root), workspace)
+    sessions: list[collect.Session] = []
+    notes: list[str] = []
+    for host, (default_root, discover, _load) in HOSTS.items():
+        if args.host and host not in args.host:
+            continue
+        root = Path(roots[host]) if roots.get(host) else default_root()
+        found, host_notes = discover(root, workspace)
+        sessions += found
+        notes += host_notes
     for note in notes:
         print(f"NOTE {note}")
     # Stated even when zero: discovery only sees sessions started in this
@@ -120,18 +180,22 @@ def main(argv: list[str] | None = None) -> int:
     submitted = 0
 
     for session in sessions:
-        messages, meta = adapt.load_session(session, workspace)
+        messages, meta = HOSTS[session.host][2](session, workspace)
+        key = _state_key(session)
+        # Claude entries stay exactly as they were; only other hosts say which.
+        tag = {} if session.host == "claude-code" else {"host": session.host}
         messages, redacted_paths, redacted_count = redact.redact_messages(messages)
         messages, truncated_paths = envelope.apply_size_controls(messages)
         truncated = sorted(truncated_paths | redacted_paths)
         fingerprint = envelope.chunk_hash(messages)
-        if state.get(session.session_id) == fingerprint:
+        if state.get(key) == fingerprint:
             print(f"SKIP {session.session_id[:8]} — already submitted, unchanged")
             # Still recorded: the preview claims to be what was last sent, and a
             # run where everything skips would otherwise blank the file that the
             # candidate is told to inspect.
             preview["sessions"].append({
-                "session_id": session.session_id, "message_count": len(messages),
+                "session_id": session.session_id, **tag,
+                "message_count": len(messages),
                 "status": "unchanged since the last submission",
                 "cwds": meta["cwds"], "redacted": redacted_count,
                 "truncated_paths": truncated, "messages": messages,
@@ -140,8 +204,8 @@ def main(argv: list[str] | None = None) -> int:
 
         chunks = envelope.build_chunks(messages)
         preview["sessions"].append({
-            "session_id": session.session_id, "message_count": len(messages),
-            "chunks": len(chunks), "cwds": meta["cwds"],
+            "session_id": session.session_id, **tag,
+            "message_count": len(messages), "chunks": len(chunks), "cwds": meta["cwds"],
             "redacted": redacted_count, "truncated_paths": truncated,
             # The messages exactly as sent, so the candidate can inspect what left
             # the machine (§4: "exactly what the last submit sent").
@@ -149,9 +213,8 @@ def main(argv: list[str] | None = None) -> int:
         })
         for cwd in meta["cwds"]:
             print(f"CWD {session.session_id[:8]} — {cwd}")
-        if not args.dry_run and session.session_id in previewed_cwds:
-            fresh = [c for c in meta["cwds"]
-                     if c not in previewed_cwds[session.session_id]]
+        if not args.dry_run and key in previewed_cwds:
+            fresh = [c for c in meta["cwds"] if c not in previewed_cwds[key]]
             for cwd in fresh:
                 print(f"NEW-CWD {session.session_id[:8]} — {cwd} "
                       "(entered after the preview you approved)")
@@ -161,6 +224,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"NOTE {session.session_id[:8]}: {meta['unreadable_lines']} "
                   "unreadable line(s) skipped")
 
+        if meta.get("unmapped_parts"):
+            kinds = ", ".join(f"{k} x{v}" for k, v in sorted(meta["unmapped_parts"].items()))
+            print(f"NOTE {session.session_id[:8]}: parts not included ({kinds})")
         if args.dry_run:
             # Byte size is part of the consent surface (§5.2): candidates need
             # to know how large the upload is before agreeing.
@@ -179,7 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         for chunk_meta, chunk_messages in chunks:
             body = {
                 "capture_version": CAPTURE_VERSION,
-                "agent": {"name": "claude-code", "version": meta["agent_version"]},
+                "agent": {"name": session.host, "version": meta["agent_version"]},
                 # Shape is §7.4 verbatim. The companion ingest spec defers to it
                 # as the canonical envelope, so a flat variant here would be a
                 # silent contract break with a server that is not written yet.
@@ -213,7 +279,9 @@ def main(argv: list[str] | None = None) -> int:
                           "cadra-connect again with a fresh token from Setup.")
                 elif status == 0:
                     print("HINT: the server was not reached. Nothing was lost — "
-                          "this session is retried whole on the next run.")
+                          "this session is retried whole on the next run. "
+                          "If you are running inside a sandbox (e.g. Codex), approve "
+                          "network access for this command and run it again.")
                 ok = False
                 failures += 1
                 # Abandon the session mid-chain: `state` is deliberately not
@@ -227,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
             if isinstance(count, int):
                 confirmed += count
         if ok:
-            state[session.session_id] = fingerprint
+            state[key] = fingerprint
             submitted += 1
             print(f"SUBMITTED {session.session_id[:8]} — server confirmed "
                   f"{confirmed} of {len(messages)} messages at "

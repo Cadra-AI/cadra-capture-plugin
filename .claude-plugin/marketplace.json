@@ -8,7 +8,7 @@
     {
       "name": "cadra-trace-tracker",
       "source": "./plugins/cadra-trace-tracker",
-      "description": "Submit your Claude Code work sessions to Cadra for assessment. Skills only — nothing is captured or sent unless you ask."
+      "description": "Submit your coding-agent work sessions (Claude Code, Codex, Kiro, Copilot CLI, Cursor, Antigravity, OpenCode) to Cadra for assessment. Skills only — nothing is captured or sent unless you ask."
     }
   ]
 }

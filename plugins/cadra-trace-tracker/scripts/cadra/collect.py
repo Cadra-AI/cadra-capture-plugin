@@ -9,6 +9,7 @@ Every restriction here exists because its absence was a real defect:
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,8 +25,15 @@ def encode_dir_name(path: Path) -> str:
     return re.sub(r"[^A-Za-z0-9]", "-", str(path))
 
 
+_MSYS_RE = re.compile(r"^/([A-Za-z])(?:/|$)")
 def _norm(path: Path) -> Path:
-    return Path(str(path)).resolve()
+    text = str(path)
+    if os.name == "nt":
+        # Git Bash / MSYS record /c/Users/x; Windows would read that as C:\c\Users\x.
+        match = _MSYS_RE.match(text.replace("\\", "/"))
+        if match:
+            text = f"{match.group(1)}:/" + text.replace("\\", "/")[3:]
+    return Path(text).resolve()
 
 
 def in_scope(cwd: str, workspace: Path) -> bool:
@@ -94,6 +102,9 @@ class Session:
     #: agent-<id> -> its sidecar meta ({agentType, toolUseId, description}).
     #: Missing or unreadable sidecars are simply absent, never fabricated.
     subagent_meta: dict[str, dict] = field(default_factory=dict)
+    #: Which agent wrote the transcript; also the chunk's `agent.name`. Last, so
+    #: positional construction elsewhere is unaffected.
+    host: str = "claude-code"
 
 
 def _read_agent_meta(jsonl: Path) -> dict:

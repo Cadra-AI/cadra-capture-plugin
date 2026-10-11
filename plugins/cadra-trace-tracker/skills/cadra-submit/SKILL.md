@@ -1,7 +1,8 @@
+---
+name: cadra-submit
+description: Submit this workspace's work sessions to Cadra for assessment. Use when the user says "submit my trace", "save my work to Cadra", "send my session", "sync my traces", or wants to make sure their assessment work is recorded.
+---
 <!-- plugins/cadra-trace-tracker/skills/cadra-submit/SKILL.md -->
----
-description: Submit this workspace's Claude Code work sessions to Cadra for assessment. Use when the user says "submit my trace", "save my work to Cadra", "send my session", "sync my traces", or wants to make sure their assessment work is recorded.
----
 
 # Skill: cadra-submit
 **Plugin:** cadra-trace-tracker
@@ -16,12 +17,22 @@ them to Cadra with a server-confirmed receipt.
 The workspace must be connected (`.cadra/config.json` present). If it is not, run
 the cadra-connect skill instead.
 
+## Plugin root
+
+`<PLUGIN_ROOT>` is the absolute path two directories above this SKILL.md (the
+plugin folder). Hosts that set `CLAUDE_PLUGIN_ROOT` or `PLUGIN_ROOT` fill it in
+for you; otherwise substitute it. If this SKILL.md was reached through a
+symlink (OpenCode installs), resolve it first with `realpath`.
+
+The commands below say `python3`. Use `python3` if it exists, else `python`, else
+`py -3` (typical on Windows). The script paths and arguments stay the same.
+
 ## Steps
 
 1. **Preview first — nothing is sent by this step:**
 
    ```
-   python "$CLAUDE_PLUGIN_ROOT/scripts/cadra_submit.py" --workspace "<WORKSPACE>" --dry-run
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_submit.py" --workspace "<WORKSPACE>" --dry-run
    ```
 
 2. Show the user what would be sent, and **ask them to confirm before step 3**:
@@ -38,7 +49,7 @@ the cadra-connect skill instead.
 3. Run the real submission and capture ALL output:
 
    ```
-   python "$CLAUDE_PLUGIN_ROOT/scripts/cadra_submit.py" --workspace "<WORKSPACE>"
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_submit.py" --workspace "<WORKSPACE>"
    ```
 
 4. Report the result in plain language:
@@ -54,8 +65,8 @@ the cadra-connect skill instead.
      that they should raise it with the program team.
    - `NOTE` lines → transcripts that were examined and left out, with the reason
      the script gave: started in a sibling directory, or carrying no recorded
-     working directory. Report only those reasons. Mention that starting `claude`
-     from the workspace root keeps future sessions in scope.
+     working directory. Report only those reasons. Mention that
+     starting your agent from the workspace root keeps future sessions in scope.
    - `FAILED` lines → say which session failed and why in one sentence, followed
      by any `HINT` line the script printed. Common cases: no internet (retry
      later, nothing is lost); an unaccepted token (re-run cadra-connect with a
@@ -76,6 +87,9 @@ the cadra-connect skill instead.
   preview is the only point at which a session that wandered outside the
   workspace can be caught, and it is worthless after the fact.
 - Never print the token.
+- In a sandbox (e.g. Codex), if the submit says the server was not reached, ask the
+  user to approve network access for this command and rerun it; nothing is lost.
+  Never change sandbox settings yourself.
 - Only sessions started in this workspace or below it are collected. A session
   started in a directory *above* the workspace is out of scope and is not
   detected at all — see design §6.1. Do not tell the user such sessions were

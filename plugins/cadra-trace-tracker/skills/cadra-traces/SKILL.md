@@ -1,7 +1,8 @@
-<!-- plugins/cadra-trace-tracker/skills/cadra-traces/SKILL.md -->
 ---
+name: cadra-traces
 description: Show which of the user's work sessions Cadra has stored. Use when the user says "show my traces", "what have I submitted", "is my work saved", or "list my Cadra sessions".
 ---
+<!-- plugins/cadra-trace-tracker/skills/cadra-traces/SKILL.md -->
 
 # Skill: cadra-traces
 **Plugin:** cadra-trace-tracker
@@ -10,12 +11,22 @@ description: Show which of the user's work sessions Cadra has stored. Use when t
 
 Read-only view of what the server actually holds. Never uploads anything.
 
+## Plugin root
+
+`<PLUGIN_ROOT>` is the absolute path two directories above this SKILL.md (the
+plugin folder). Hosts that set `CLAUDE_PLUGIN_ROOT` or `PLUGIN_ROOT` fill it in
+for you; otherwise substitute it. If this SKILL.md was reached through a
+symlink (OpenCode installs), resolve it first with `realpath`.
+
+The commands below say `python3`. Use `python3` if it exists, else `python`, else
+`py -3` (typical on Windows). The script paths and arguments stay the same.
+
 ## Steps
 
 1. Run:
 
    ```
-   python "$CLAUDE_PLUGIN_ROOT/scripts/cadra_traces.py" --workspace "<WORKSPACE>"
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_traces.py" --workspace "<WORKSPACE>"
    ```
 
 2. Render one compact line per stored session — date, message count, size. Keep it
