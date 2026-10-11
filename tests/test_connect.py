@@ -218,3 +218,67 @@ def test_an_unreachable_server_never_leaves_a_config(workspace: Path, monkeypatc
     assert cadra_connect.main(["--workspace", str(workspace),
                                "--proxy", "https://proxy.test"]) == 1
     assert not config.config_path(workspace).exists()
+
+
+# ── the proxy address comes from the client, never from the token ─────────────
+
+def _token_with(claims: dict) -> str:
+    import base64
+
+    def seg(obj):
+        return base64.urlsafe_b64encode(json.dumps(obj).encode()).rstrip(b"=").decode()
+    base = {"coding_assessment_id": "a-1", "exp": 99999999999}
+    return f"{seg({'alg': 'HS256'})}.{seg({**base, **claims})}.sig"
+
+
+def test_connect_without_a_proxy_flag_uses_the_built_in_default(
+    workspace: Path, monkeypatch
+):
+    """The whole point: no flag, no env, no claim — and it still resolves.
+
+    Previously this fell through to "" and died on the scheme check, so connect
+    only worked when the agent recalled a URL out of SKILL.md.
+    """
+    monkeypatch.delenv(config.PROXY_ENV_VAR, raising=False)
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    assert cadra_connect.main(["--workspace", str(workspace)]) == 0
+    cfg = config.load(workspace)
+    assert cfg["proxy_base_url"] == config.DEFAULT_PROXY_BASE_URL
+
+
+def test_connect_honours_the_environment_override(workspace: Path, monkeypatch):
+    monkeypatch.setenv(config.PROXY_ENV_VAR, "https://staging.example")
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    assert cadra_connect.main(["--workspace", str(workspace)]) == 0
+    assert config.load(workspace)["proxy_base_url"] == "https://staging.example"
+
+
+def test_a_proxy_base_url_claim_in_the_token_is_ignored(workspace: Path, monkeypatch):
+    """SECURITY. Claims are decoded without verifying the signature, so a claim
+    naming the destination would let unauthenticated input walk the bearer token
+    to an attacker's host — the exfiltration client._NoRedirects prevents for
+    redirects. The token must not be able to influence routing at all.
+    """
+    monkeypatch.delenv(config.PROXY_ENV_VAR, raising=False)
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token_with({"proxy_base_url": "https://attacker.example"}))
+    assert cadra_connect.main(["--workspace", str(workspace)]) == 0
+    cfg = config.load(workspace)
+    assert cfg["proxy_base_url"] == config.DEFAULT_PROXY_BASE_URL
+    assert "attacker" not in cfg["proxy_base_url"]
+
+
+def test_the_verified_destination_is_the_resolved_one(workspace: Path, monkeypatch):
+    """A claim must not reach verify_token either — otherwise the token is sent
+    to the attacker's host before anything is written to disk."""
+    seen: list[str] = []
+    monkeypatch.delenv(config.PROXY_ENV_VAR, raising=False)
+    monkeypatch.setattr(
+        cadra_connect, "verify_token",
+        lambda **kw: (seen.append(kw["proxy_base_url"]), (True, ""))[1],
+    )
+    _paste(workspace, _token_with({"proxy_base_url": "https://attacker.example"}))
+    cadra_connect.main(["--workspace", str(workspace)])
+    assert seen == [config.DEFAULT_PROXY_BASE_URL]

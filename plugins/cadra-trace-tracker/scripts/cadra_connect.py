@@ -116,7 +116,11 @@ def main(argv: list[str] | None = None) -> int:
         print("FAILED: this token has expired. Request a fresh one.")
         return 1
 
-    proxy = args.proxy or claims.get("proxy_base_url") or ""
+    # NOT from the token. `claims` is decoded without verifying the signature,
+    # so a proxy_base_url claim would be unauthenticated input choosing where a
+    # bearer credential is sent. The address is the same for every candidate in
+    # an environment, so it is client config — see config.DEFAULT_PROXY_BASE_URL.
+    proxy = config.resolve_proxy(args.proxy)
     if not proxy.startswith("https://"):
         print("FAILED: the proxy address must be an https:// URL. Nothing was saved.")
         return 1
