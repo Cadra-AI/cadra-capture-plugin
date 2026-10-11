@@ -103,10 +103,19 @@ def to_messages(entries: list[dict], workspace: Path,
         ts = entry.get("timestamp")
         role = message.get("role") or entry.get("type")
         content = message.get("content")
+        # Claude Code injects skill text as a role=user entry with isMeta=True
+        # and a sourceToolUseID. It is the AGENT's own context, not something the
+        # candidate typed, and recording it as role=user makes the grader score
+        # it as candidate prose: a multi-thousand-character "prompt" arriving
+        # instantly is exactly what paste_velocity_evidence flags. Re-roled to
+        # "system", which the managed path already uses for its injected bulk
+        # and which _user_rows_from_trace ignores, so the content survives for
+        # context without being attributed to anyone.
+        injected = bool(entry.get("isMeta")) and role == "user"
 
         if isinstance(content, str):
             if role in ("user", "assistant") and content:
-                out = {"role": role, "content": content}
+                out = {"role": "system" if injected else role, "content": content}
                 if isinstance(ts, str) and ts:
                     out["client_ts"] = ts
                 if agent:
@@ -157,9 +166,14 @@ def to_messages(entries: list[dict], workspace: Path,
                     out = {"role": "tool", "tool_call_id": block.get("tool_use_id"),
                            "content": _flatten_result(block.get("content"))}
                 elif block.get("type") == "text" and isinstance(block.get("text"), str):
-                    out = {"role": "user", "content": block["text"]}
+                    # tool_result above keeps role="tool" regardless: re-roling
+                    # it would drop the tool_call_id linkage. Only prose blocks,
+                    # which are the ones authorship analysis reads, are affected.
+                    out = {"role": "system" if injected else "user",
+                           "content": block["text"]}
                 elif block.get("type") == "image":
-                    out = {"role": "user", "content": IMAGE_PLACEHOLDER}
+                    out = {"role": "system" if injected else "user",
+                           "content": IMAGE_PLACEHOLDER}
                 else:
                     continue
                 if isinstance(ts, str) and ts:

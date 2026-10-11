@@ -146,3 +146,64 @@ def test_dot_segments_are_collapsed_before_rebasing():
     write silently scores as unattested."""
     assert adapt.rebase_path("C:/Dev/ws/src/../a.py", WS) == "a.py"
     assert adapt.rebase_path("C:/Dev/ws/./src/a.py", WS) == "src/a.py"
+
+
+# ── agent-injected content must not be attributed to the candidate ───────────
+# Claude Code injects skill text as a role=user entry carrying isMeta=True and a
+# sourceToolUseID. Recorded as role=user it becomes candidate-authored prose to
+# the grader: _user_rows_from_trace feeds it to paste_velocity_evidence,
+# select_judge_candidates and tier0_hits. A 5k-char "prompt" that appears
+# instantly is exactly the pasted-text signature — this already fired in
+# production on a Claude Code system-reminder and banded a grade to `caution`.
+#
+# Measured on a real session (49ecd456): two injected blocks of 3,369 and 4,834
+# chars were 66% of ALL user-role text, while the managed path kept its injected
+# bulk in a role=system row the grader ignores. Re-roling to "system" matches
+# managed: the content is preserved for context and excluded from authorship.
+
+def _user_text(text, ts="2026-08-11T09:00:00Z", **over):
+    entry = {"type": "user", "timestamp": ts, "cwd": "C:/Dev/ws",
+             "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+    entry.update(over)
+    return entry
+
+
+def test_injected_skill_text_is_not_recorded_as_a_candidate_message():
+    out = adapt.to_messages([_user_text(
+        "Base directory for this skill: C:/plugins/x/skills/y",
+        isMeta=True, sourceToolUseID="toolu_01",
+    )], WS)
+    assert [m["role"] for m in out] == ["system"]
+
+
+def test_a_typed_message_is_still_the_candidate_speaking():
+    out = adapt.to_messages([_user_text("add a gitignore for token.txt")], WS)
+    assert [m["role"] for m in out] == ["user"]
+    assert out[0]["content"] == "add a gitignore for token.txt"
+
+
+def test_injected_content_is_kept_not_dropped():
+    """The grader still wants the context; it just must not score it as theirs."""
+    out = adapt.to_messages([_user_text("injected context", isMeta=True)], WS)
+    assert out[0]["content"] == "injected context"
+    assert out[0].get("client_ts") == "2026-08-11T09:00:00Z"
+
+
+def test_a_plain_string_user_entry_is_re_roled_too():
+    """Claude Code also emits content as a bare string, handled by a separate
+    branch — the marker must be honoured there as well, not just for blocks."""
+    out = adapt.to_messages([{
+        "type": "user", "timestamp": "2026-08-11T09:00:00Z", "cwd": "C:/Dev/ws",
+        "isMeta": True, "message": {"role": "user", "content": "injected prose"},
+    }], WS)
+    assert [m["role"] for m in out] == ["system"]
+
+
+def test_tool_results_are_unaffected_by_the_marker():
+    """tool_result blocks already become role=tool; isMeta must not re-role them
+    into system and lose the tool_call_id linkage."""
+    entry = _tool_result("t1", "ok")
+    entry["isMeta"] = True
+    out = adapt.to_messages([entry], WS)
+    assert out[0]["role"] == "tool"
+    assert out[0]["tool_call_id"] == "t1"
