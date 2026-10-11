@@ -226,7 +226,9 @@ def test_the_confirmed_count_sums_every_chunk(connected: Path, transcripts: Path
     cadra_submit.main(["--workspace", str(connected),
                        "--projects-root", str(transcripts)])
     out = capsys.readouterr().out
-    assert "server confirmed 2 of 2 messages" in out
+    # Still the point of the test: 2 confirmed, summed across two one-message
+    # chunks, rather than the 1 that quoting the last receipt would report.
+    assert "2 of 2 messages" in out
 
 
 def test_a_run_where_everything_skips_keeps_the_preview(

@@ -242,3 +242,21 @@ def load_session(session: Session, workspace: Path) -> tuple[list[dict], dict]:
             "ended_at": stamps[-1] if stamps else None, "agent_version": version,
             "unreadable_lines": unreadable}
     return messages, meta
+
+
+def count_turns(messages: list[dict]) -> int:
+    """How many times the candidate spoke.
+
+    The unit to SHOW a candidate. A raw message count mixes their prompts with
+    the agent's own steps — assistant replies, tool calls, tool results — so a
+    session they experienced as 8 exchanges reports as 89 messages, which reads
+    like the plugin is capturing far more than it is. Turns are checkable
+    against their memory of the session.
+
+    Relies on injected content already being re-roled away from "user" (see
+    to_messages): otherwise skill text would count as turns the candidate never
+    took. Not a substitute for the full count, which the sent-vs-confirmed
+    comparison still needs.
+    """
+    return sum(1 for m in messages
+               if isinstance(m, dict) and m.get("role") == "user")

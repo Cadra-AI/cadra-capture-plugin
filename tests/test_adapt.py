@@ -207,3 +207,36 @@ def test_tool_results_are_unaffected_by_the_marker():
     out = adapt.to_messages([entry], WS)
     assert out[0]["role"] == "tool"
     assert out[0]["tool_call_id"] == "t1"
+
+
+# ── turn counting: what a candidate recognises as "a message" ────────────────
+# The raw count mixes their prompts with the agent's own steps — tool calls,
+# tool results, assistant replies. A session the candidate experienced as 8
+# exchanges reported "89 messages", which reads like the plugin is hoovering up
+# far more than it is. Turns are the unit they can check against their own
+# memory of the session; the full count stays available for the
+# sent-vs-confirmed integrity comparison.
+
+def test_turns_counts_only_what_the_candidate_said():
+    messages = [
+        {"role": "user", "content": "do the thing"},
+        {"role": "assistant", "content": "ok", "tool_calls": [{"id": "t1"}]},
+        {"role": "tool", "tool_call_id": "t1", "content": "done"},
+        {"role": "assistant", "content": "finished"},
+        {"role": "user", "content": "now the other thing"},
+    ]
+    assert adapt.count_turns(messages) == 2
+
+
+def test_injected_content_is_not_a_turn():
+    """The isMeta re-role puts it in system, so this holds by construction —
+    pinned because it is the reason the count was wrong in the first place."""
+    assert adapt.count_turns([
+        {"role": "system", "content": "Base directory for this skill: ..."},
+        {"role": "user", "content": "real prompt"},
+    ]) == 1
+
+
+def test_turns_of_an_empty_or_agent_only_session_is_zero():
+    assert adapt.count_turns([]) == 0
+    assert adapt.count_turns([{"role": "assistant", "content": "unprompted"}]) == 0

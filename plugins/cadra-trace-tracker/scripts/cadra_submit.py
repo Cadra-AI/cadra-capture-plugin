@@ -234,7 +234,9 @@ def main(argv: list[str] | None = None) -> int:
                 len(json.dumps(chunk_messages, ensure_ascii=False).encode("utf-8"))
                 for _, chunk_messages in chunks
             )
-            print(f"DRY-RUN {session.session_id[:8]} — {len(messages)} messages, "
+            print(f"DRY-RUN {session.session_id[:8]} — "
+                  f"{adapt.count_turns(messages)} of your turns "
+                  f"({len(messages)} messages including the agent's own steps), "
                   f"{len(chunks)} chunk(s), {approx_bytes} bytes, "
                   f"{redacted_count} redaction(s). Nothing was sent.")
             continue
@@ -297,9 +299,16 @@ def main(argv: list[str] | None = None) -> int:
         if ok:
             state[key] = fingerprint
             submitted += 1
-            print(f"SUBMITTED {session.session_id[:8]} — server confirmed "
-                  f"{confirmed} of {len(messages)} messages at "
-                  f"{receipt.get('received_at', '?')}")
+            # Lead with turns: that is the unit the candidate can check against
+            # their memory of the session. The raw count mixes in the agent's
+            # tool calls and results, so "89 messages" after 8 exchanges reads
+            # as the plugin capturing far more than it is. The full count stays
+            # on the line because the confirmed-vs-sent check below needs it and
+            # it is part of the consent surface.
+            print(f"SUBMITTED {session.session_id[:8]} — "
+                  f"{adapt.count_turns(messages)} of your turns captured "
+                  f"({confirmed} of {len(messages)} messages including the "
+                  f"agent's own steps) at {receipt.get('received_at', '?')}")
             if confirmed != len(messages):
                 print(f"NOTE {session.session_id[:8]}: the server counted "
                       f"{confirmed} messages, this machine sent {len(messages)}. "
