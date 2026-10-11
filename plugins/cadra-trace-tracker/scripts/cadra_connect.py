@@ -130,8 +130,16 @@ def main(argv: list[str] | None = None) -> int:
         # states locally, so answer from it.
         already = _stored_connection(workspace)
         if already is None:
-            print(f"FAILED: no token file at {source}. Run with --init first, then "
-                  "paste your token into that file yourself.")
+            # Name the whole command, not the flag. This text is read by the
+            # agent and relayed to a human: a bare "--init" gives the agent
+            # nothing to run and shows a candidate a CLI flag they cannot act
+            # on. SKILL.md step 5 promises the reason AND what to do about it.
+            print(f"FAILED: this workspace is not prepared yet — "
+                  f"no token file at {source}.")
+            print(f'  Run: python "{Path(__file__).resolve()}" '
+                  f'--workspace "{workspace}" --init')
+            print("  That creates .cadra/ and prints the file to paste your "
+                  "token into. Paste it yourself, then connect again.")
             return 1
         expires = _claims_expiry(already.get("token", ""))
         if expires is not None and expires < time.time():
@@ -171,8 +179,12 @@ def main(argv: list[str] | None = None) -> int:
     # Same predicate client enforces, so connect and submit can never disagree
     # about what is reachable.
     if not client.is_allowed_base_url(proxy):
-        print("FAILED: the proxy address must be an https:// URL "
-              "(or http:// on localhost for local testing). Nothing was saved.")
+        # Echo the offending value: the address can now come from --proxy, from
+        # CADRA_PROXY_BASE_URL or from the built-in default, so stating only the
+        # rule leaves the operator guessing which source was wrong.
+        print(f"FAILED: {proxy} is not a usable proxy address. It must be "
+              "https://, or http:// on localhost with a port for local "
+              "testing. Nothing was saved.")
         return 1
 
     ok, detail = verify_token(proxy_base_url=proxy, token=token,

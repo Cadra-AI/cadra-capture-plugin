@@ -378,3 +378,33 @@ def test_an_expired_stored_token_is_reported_as_expired_not_as_connected(
     assert "token has expired" in out
     assert "no token file" not in out
     assert "already connected" not in out
+
+
+# ── failure messages must name a runnable next step ──────────────────────────
+# These are read by the agent and relayed to a human. "Run with --init first"
+# named an internal flag without saying run WHAT, so neither reader could act:
+# the agent had no command to run, and a candidate has no business seeing a CLI
+# flag at all. SKILL.md step 5 says "relay the reason and what to do about it",
+# which only works if the message carries both.
+
+def test_the_unprepared_message_gives_a_command_that_can_actually_be_run(
+    workspace: Path, capsys
+):
+    (workspace / ".cadra").mkdir(parents=True, exist_ok=True)
+    code = cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "cadra_connect.py" in out, "must name the script, not just the flag"
+    assert "--init" in out
+    assert str(workspace) in out, "must name the workspace it should be run against"
+
+
+def test_a_rejected_proxy_address_is_echoed_back(workspace: Path, monkeypatch, capsys):
+    """Without the value, an operator with a typo'd CADRA_PROXY_BASE_URL is told
+    the rule but not which address broke it."""
+    monkeypatch.setenv(config.PROXY_ENV_VAR, "http://192.168.1.50:8080")
+    _paste(workspace, _token())
+    code = cadra_connect.main(["--workspace", str(workspace)])
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "192.168.1.50:8080" in out
