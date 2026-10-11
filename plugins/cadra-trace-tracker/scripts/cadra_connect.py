@@ -52,6 +52,35 @@ def token_path(workspace: Path) -> Path:
     return config.config_dir(workspace) / TOKEN_FILENAME
 
 
+def _stored_connection(workspace: Path) -> dict | None:
+    """The saved connection, or None if this workspace was never connected.
+
+    A config.json with no token is treated as not connected: it cannot submit,
+    so reporting "already connected" would be wrong.
+    """
+    try:
+        cfg = config.load(workspace)
+    except (OSError, ValueError):
+        return None
+    return cfg if isinstance(cfg, dict) and cfg.get("token") else None
+
+
+def _claims_expiry(token: str) -> float | None:
+    """`exp` from a stored token, or None if unreadable.
+
+    Unverified, like every other local claim read — the server is what decides
+    whether a token is good. This only needs to tell "still inside the window"
+    from "lapsed since you connected", which is a numeric field, not a trust
+    decision. None means "cannot tell", and the caller must not treat that as
+    expired.
+    """
+    try:
+        exp = config.decode_claims(token).get("exp")
+    except ValueError:
+        return None
+    return float(exp) if isinstance(exp, (int, float)) else None
+
+
 def main(argv: list[str] | None = None) -> int:
     # Host engines pipe stdout in the platform's default encoding; a non-ASCII
     # path must not crash the run.
@@ -93,9 +122,27 @@ def main(argv: list[str] | None = None) -> int:
     try:
         token = source.read_text(encoding="utf-8").strip()
     except OSError:
-        print(f"FAILED: no token file at {source}. Run with --init first, then "
-              "paste your token into that file yourself.")
-        return 1
+        # token.txt is DELETED on a successful connect, so its absence usually
+        # means "already connected", not "lost your token". Saying the latter
+        # sent candidates back to the Setup page to re-copy a credential they
+        # had just used successfully — and the README had to warn that the
+        # message "only means you are done". config.json distinguishes the
+        # states locally, so answer from it.
+        already = _stored_connection(workspace)
+        if already is None:
+            print(f"FAILED: no token file at {source}. Run with --init first, then "
+                  "paste your token into that file yourself.")
+            return 1
+        expires = _claims_expiry(already.get("token", ""))
+        if expires is not None and expires < time.time():
+            when = time.strftime("%Y-%m-%d", time.gmtime(expires))
+            print(f"FAILED: your token has expired (it ran out on {when}). Paste a "
+                  f"fresh one into {source} and connect again.")
+            return 1
+        print(f"CONNECTED workspace={already.get('workspace_root') or workspace}")
+        print("Already connected — nothing to do. Say 'submit my trace' when you "
+              "want to send your work.")
+        return 0
     if not token:
         print(f"FAILED: {source} is empty. Paste your assessment token into it.")
         return 1

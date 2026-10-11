@@ -304,3 +304,77 @@ def test_connect_refuses_a_userinfo_spoofed_loopback_proxy(workspace: Path, monk
                                "--proxy", "http://localhost:8080@evil.example"])
     assert code == 1
     assert not config.config_path(workspace).exists()
+
+
+# ── connecting twice must not read as "you lost your token" ───────────────────
+# A successful connect DELETES token.txt, so a second connect hit the
+# no-token-file branch and told the candidate to run --init and paste a token
+# again — for a credential they had already used successfully, and which they
+# would have to go back to the Setup page to re-copy. The README had to warn
+# that this message "only means you are done", which is docs compensating for a
+# wrong message. The states are distinguishable from config.json, locally.
+
+def test_connecting_twice_reports_already_connected(workspace: Path, monkeypatch):
+    calls: list[str] = []
+    monkeypatch.setattr(cadra_connect, "verify_token",
+                        lambda **kw: (calls.append("verify"), (True, ""))[1])
+    _paste(workspace, _token())
+    assert cadra_connect.main(["--workspace", str(workspace),
+                               "--proxy", "https://proxy.test"]) == 0
+    # Second run: token.txt is gone because the first run consumed it.
+    code = cadra_connect.main(["--workspace", str(workspace),
+                               "--proxy", "https://proxy.test"])
+    assert code == 0, "already-connected is the desired state, not a failure"
+    # And it must not re-verify: nothing changed, so nothing needs the network.
+    assert calls == ["verify"], calls
+
+
+def test_already_connected_does_not_ask_for_a_token(workspace: Path, monkeypatch, capsys):
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    capsys.readouterr()
+    cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    out = capsys.readouterr().out
+    assert "no token file" not in out.lower()
+    assert "--init" not in out
+    assert "paste" not in out.lower()
+
+
+def test_an_unconnected_workspace_still_asks_for_the_token(workspace: Path, capsys):
+    """The original message is correct when there is genuinely nothing yet."""
+    cadra_connect.main(["--workspace", str(workspace), "--init"])
+    capsys.readouterr()
+    code = cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    assert code == 1
+    out = capsys.readouterr().out
+    assert "no token file" in out.lower()
+
+
+def test_an_expired_stored_token_is_reported_as_expired_not_as_connected(
+    workspace: Path, monkeypatch, capsys
+):
+    """"Already connected" would be a lie once the stored token has lapsed.
+    exp is readable from the stored token locally — no secret, no network.
+
+    Set up by connecting normally and then ageing the STORED token: connect
+    rejects an expired token up front, so config.json can only come to hold one
+    by the window closing after a successful connect — which is exactly the real
+    case, a candidate returning weeks later.
+    """
+    monkeypatch.setattr(cadra_connect, "verify_token", lambda **kw: (True, ""))
+    _paste(workspace, _token())
+    cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    cfg = config.load(workspace)
+    cfg["token"] = _token(exp=1)              # the window has since closed
+    config.save(workspace, cfg)
+    capsys.readouterr()
+    code = cadra_connect.main(["--workspace", str(workspace), "--proxy", "https://proxy.test"])
+    assert code == 1
+    out = capsys.readouterr().out.lower()
+    # Assert on the SENTENCE, not the word: pytest names its tmp dir after the
+    # test, so a bare `"expired" in out` matches the path in any message and
+    # passes against the old "no token file" text.
+    assert "token has expired" in out
+    assert "no token file" not in out
+    assert "already connected" not in out
