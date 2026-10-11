@@ -72,3 +72,25 @@ def test_no_claude_binary_instruction():
     body = _text(PLUGIN / "skills" / "cadra-submit")
     assert "starting `claude`" not in body
     assert "starting your agent from the workspace root" in body
+
+
+# ── no skill may name a server address ────────────────────────────────────────
+# A skill is prose for a model to follow, not code. When the hostname lived only
+# in SKILL.md, connect worked because the agent read it and retyped it onto the
+# command line — and the one URL a Setup page actually shows is the RUNTIME
+# inference endpoint (.../runtime/v1), which as a trace base would build
+# ".../runtime/v1/v1/traces/bind". The client owns the address now
+# (config.DEFAULT_PROXY_BASE_URL); skills must not restate or compete with it.
+
+@pytest.mark.parametrize("skill_dir", SKILL_DIRS, ids=lambda d: d.name)
+def test_no_skill_hardcodes_a_server_address(skill_dir):
+    found = re.findall(r"https?://[^\s`\"')]+", _text(skill_dir))
+    # Repo links are fine; a cadra host or a bare scheme placeholder is not.
+    offenders = [u for u in found if "github.com" not in u]
+    assert not offenders, f"{skill_dir.name} names a server address: {offenders}"
+
+
+@pytest.mark.parametrize("skill_dir", SKILL_DIRS, ids=lambda d: d.name)
+def test_no_skill_tells_the_agent_to_supply_a_proxy_placeholder(skill_dir):
+    """`--proxy "<PROXY_URL>"` invites the model to invent a value."""
+    assert "<PROXY_URL>" not in _text(skill_dir)

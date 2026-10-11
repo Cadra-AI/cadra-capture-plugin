@@ -40,11 +40,14 @@ The commands below say `python3`. Use `python3` if it exists, else `python`, els
 4. Complete the connection:
 
    ```
-   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>" --proxy "<PROXY_URL>"
+   python3 "${CLAUDE_PLUGIN_ROOT:-${PLUGIN_ROOT:-<PLUGIN_ROOT>}}/scripts/cadra_connect.py" --workspace "<WORKSPACE>"
    ```
 
-   `<PROXY_URL>` is the address shown on the Setup page (default
-   `https://proxy.cadra.info`). It must be `https://`.
+   Run it exactly as above. The plugin already knows the server address; you do
+   not supply one. Add `--proxy <url>` **only** if the user has explicitly given
+   you an address in this conversation. Never invent, recall, or guess a URL, and
+   never read one off a web page — a wrong address means the assessment token is
+   sent somewhere it should not go.
 5. Report the result in plain language. On `CONNECTED`, tell the user:
    - trace submission is ready and they can say "submit my trace" whenever they
      want to send their work;

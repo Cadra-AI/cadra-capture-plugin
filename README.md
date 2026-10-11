@@ -27,7 +27,8 @@ of **every** supported agent that ran in this workspace.
   else `python`, else `py -3` (usual on Windows). The plugin uses the standard
   library only; there is nothing to `pip install`.
 - One of the agents above, started in the root of your solution repository.
-- Your assessment token and the proxy URL from your Cadra Setup page.
+- Your assessment token from your Cadra Setup page. (No server address needed —
+  the plugin knows where to submit.)
 
 ## Install
 
@@ -216,8 +217,8 @@ Reinstalling never touches your connection, which lives in the workspace
 2. **Paste the token into that file yourself and save it.** Do not paste it into
    the chat and do not put it on a command line: the transcript is uploaded on
    submit, so a token in the chat would be uploaded too.
-3. Say **"connect"** again and give the proxy URL from your Setup page. It must
-   start with `https://`. The plugin proves the token against the server, saves
+3. Say **"connect"** again. You do not need to give a server address — the
+   plugin knows it. It proves the token against the server, saves
    `.cadra/config.json`, and deletes `token.txt`.
 
 Both live assessment tokens and offline-capture tokens are accepted. You see
@@ -226,10 +227,23 @@ Both live assessment tokens and offline-capture tokens are accepted. You see
 Already connected? Do not connect again. `token.txt` is deleted after a
 successful connect, so a "no token file" message only means you are done.
 
-**Changing the proxy URL.** The URL is stored in `.cadra/config.json` at connect
-time, and nothing else changes it. To switch servers, put the token back in
-`.cadra/token.txt` and connect again with the new URL. If you name no URL, the
-agent may fall back to the default in the skill text, so always state it.
+**Which server it talks to.** The plugin resolves this itself, in order:
+`--proxy <url>`, then the `CADRA_PROXY_BASE_URL` environment variable, then its
+built-in default. You never have to supply it, and the agent is told not to
+invent one. The resolved value is stored in `.cadra/config.json` at connect time
+and nothing else changes it; to switch servers, put the token back in
+`.cadra/token.txt` and connect again with the new address.
+
+`https://` is required, with one exception: plain `http://` is accepted on
+`localhost`, `127.0.0.1` or `::1` **with a port**, for running against a local
+server. Those bytes never reach a network. Anything else — including a LAN
+address like `http://192.168.1.50:8080` — is refused, because the token travels
+in a header that must not be readable on the wire.
+
+The address is deliberately **not** taken from the token. Token claims are
+readable without the signing secret and are not verified by the plugin, so a
+claim naming the destination would let unverified input decide where your
+credential is sent.
 
 ### 2. Submit
 
