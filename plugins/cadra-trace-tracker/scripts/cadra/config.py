@@ -17,6 +17,34 @@ CONFIG_FILENAME = "config.json"
 GITIGNORE_ENTRY = ".cadra/"
 _MAX_WALK_UP = 12
 
+# The Cadra proxy address. This is CLIENT configuration, not candidate data:
+# every candidate in an environment submits to the same proxy, so the value is
+# invariant and belongs here rather than in anything the candidate handles.
+#
+# It is deliberately NOT read from a token claim. Claims are decoded without
+# verifying the signature (see decode_claims), so a claim deciding where a
+# bearer token gets sent would be unauthenticated input controlling a credential
+# path — undoing the same-host guarantee client._NoRedirects exists to keep.
+# Before this constant existed the resolution chain ended in "", and the only
+# place the real hostname lived was prose in SKILL.md for the agent to recall.
+DEFAULT_PROXY_BASE_URL = "https://proxy.cadra.info"
+# Override for local and staging work, matching the <HOST>_HOME override idiom
+# the host adapters already use. Operator-supplied, same trust level as --proxy.
+PROXY_ENV_VAR = "CADRA_PROXY_BASE_URL"
+
+
+def resolve_proxy(cli_value: str) -> str:
+    """The proxy base URL: explicit flag, then environment, then the default.
+
+    Takes no token on purpose — see DEFAULT_PROXY_BASE_URL. Never returns empty,
+    so a missing value can no longer surface as a scheme-check failure.
+    """
+    for candidate in (cli_value, os.environ.get(PROXY_ENV_VAR, "")):
+        value = (candidate or "").strip()
+        if value:
+            return value.rstrip("/")
+    return DEFAULT_PROXY_BASE_URL.rstrip("/")
+
 
 def config_dir(workspace: Path) -> Path:
     return Path(workspace) / CONFIG_DIRNAME
