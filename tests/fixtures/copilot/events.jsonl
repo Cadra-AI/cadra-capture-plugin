@@ -1,0 +1,8 @@
+{"type": "session.start", "id": "e01", "parentId": null, "timestamp": "2026-08-11T09:00:00Z", "data": {"sessionId": "00000000-0000-4000-8000-000000000003", "version": 1, "producer": "copilot-agent", "copilotVersion": "1.0.0", "startTime": "2026-08-11T09:00:00Z", "context": {"cwd": "{WS}", "gitRoot": "{WS}", "branch": "main"}}}
+{"type": "session.model_change", "id": "e02", "parentId": "e01", "timestamp": "2026-08-11T09:00:01Z", "data": {"newModel": "synthetic-model"}}
+{"type": "system.message", "id": "e03", "parentId": "e02", "timestamp": "2026-08-11T09:00:01Z", "data": {"content": "SYNTHETIC-SYSTEM-PROMPT"}}
+{"type": "user.message", "id": "e04", "parentId": "e03", "timestamp": "2026-08-11T09:00:02Z", "data": {"content": "Add a function to src/a.py", "transformedContent": "Add a function to src/a.py\n<reminder>SYNTHETIC-REMINDER</reminder>"}}
+{"type": "assistant.message", "id": "e05", "parentId": "e04", "timestamp": "2026-08-11T09:00:04Z", "data": {"messageId": "msg-0001", "content": "Reading the file first.", "reasoningText": "SYNTHETIC-REASONING", "toolRequests": [{"toolCallId": "tool-0001", "name": "view", "arguments": {"path": "{WS}/src/a.py"}, "type": "function"}]}}
+{"type": "tool.execution_start", "id": "e06", "parentId": "e05", "timestamp": "2026-08-11T09:00:05Z", "data": {"toolCallId": "tool-0001", "toolName": "view", "arguments": {"path": "{WS}/src/a.py"}}}
+{"type": "tool.execution_complete", "id": "e07", "parentId": "e06", "timestamp": "2026-08-11T09:00:06Z", "data": {"toolCallId": "tool-0001", "success": true, "result": {"content": "def a():\n    return 1\n"}}}
+{"type": "session.shutdown", "id": "e08", "parentId": "e07", "timestamp": "2026-08-11T09:00:09Z", "data": {}}

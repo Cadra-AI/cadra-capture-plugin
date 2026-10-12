@@ -1,0 +1,4 @@
+{"id": "s01", "timestamp": "2026-08-11T09:00:10Z", "payload": {"type": "steering_inclusion", "content": "SYNTHETIC-STEERING"}}
+{"id": "s02", "timestamp": "2026-08-11T09:00:11Z", "payload": {"type": "assistant", "content": "Adding function b.", "executionId": "exec-0002"}}
+{"id": "s03", "timestamp": "2026-08-11T09:00:12Z", "payload": {"type": "tool_call", "toolCallId": "tool-0003", "toolName": "strReplace", "args": {"path": "{WS}/src/a.py", "oldStr": "return 1\n", "newStr": "return 1\n\ndef b():\n    return 2\n"}, "status": "completed", "kind": "edit", "title": "Edit file"}}
+{"id": "s04", "timestamp": "2026-08-11T09:00:13Z", "payload": {"type": "tool_result", "toolCallId": "tool-0003", "content": "Replaced text in src/a.py", "success": true}}

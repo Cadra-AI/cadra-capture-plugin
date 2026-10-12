@@ -183,11 +183,40 @@ raw message-id count that includes subagent traffic.
 and enforce post-hoc, or accept unbounded and mark it on the report (G11). A BYO
 score is not comparable to a capped OpenCode score unless one of these happens.
 
-#### G8 — No `config_tampered` analogue · OPEN
+#### G8 — No `config_tampered` analogue · CLOSED — out of scope (2026-08-12)
 There is no `opencode.json` to diff. Real equivalents exist and are currently
 invisible: `.claude/settings.json` (hook and permission changes), a
-candidate-authored `CLAUDE.md`, edits to the plugin itself. Hash and submit
-these alongside the transcript; diff against the shipped baseline.
+candidate-authored `CLAUDE.md`, edits to the plugin itself. The proposed fix was
+to hash and submit these alongside the transcript and diff against the shipped
+baseline.
+
+**Decided against, for three reasons.**
+
+*The hash is self-reported by the thing being checked.* The plugin computes it,
+and edits to the plugin are one of the three things G8 wants to detect. A
+candidate who changes `settings.json` can change the hasher in the same sitting.
+That makes it evidence against carelessness only — the same tier as the binding
+check (§7 of the ingest design), but without binding's redeeming property of
+catching a common honest mistake.
+
+*It cannot protect the score.* `.claude` is already in `_IGNORED_DIR_PARTS` and
+`claude.md` / `agents.md` / `opencode.json` in `_IGNORED_FILENAMES`
+(`proxy/line_attest.py:25-34`), so none of these files enters the coverage math on
+either path. A configuration change has no route to inflate `agent_share`.
+
+*It argues against the stated non-goal.* BYO is deliberately unbounded — no prompt
+cap, no time window, no forced model — and the report marks BYO provenance rather
+than pretending the constraints applied (design §1). A config-tamper flag is a
+constraint check reintroduced by the back door, and a weak one.
+
+**What was separated out rather than dropped.** `CLAUDE.md` is interesting as
+*positive* evidence: writing good agent instructions is a real AI-engineering
+skill, and on the BYO path it is the candidate's most direct statement of how they
+wanted the agent to behave. That is a grading feature needing its own rubric line,
+not a tamper hash, and it is not tracked here.
+
+Reopen if the threat model changes — specifically, if BYO ever becomes a *capped*
+path, at which point knowing the configuration was altered starts to matter.
 
 ### Group D — Channel integrity
 
@@ -404,7 +433,6 @@ transcript", and shaped so the proxy can write the existing F6 ledgers directly.
 | `session_id` | Claude Code `sessionId` | → `coding_assessment_session_transcripts.session_id` |
 | `started_at` / `ended_at` | first/last entry timestamps | window checks (G7) |
 | `client_capture_version` | plugin version | provenance |
-| `config_hashes` | `.claude/settings.json`, `CLAUDE.md`, plugin files | G8 |
 | `chunk_index` / `chunk_total` / `prefix_hash` | chunker | G12 + G9 hash chain |
 
 `assessment_id` is **absent by design** — the proxy derives it from the verified
@@ -440,4 +468,4 @@ in the velocity and outsourced-prompt analyses.
    viable (§4); `tool-results/` offload check closed (§4.4) — write bodies stay
    in the JSONL.*
 5. **G9 + G11** — tamper-evidence and report provenance marking.
-6. **G7 + G8**, then **G12 + G13**.
+6. **G7**, then **G12 + G13**. (G8 closed as out of scope — see above.)

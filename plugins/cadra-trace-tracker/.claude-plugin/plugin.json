@@ -1,9 +1,9 @@
 {
   "name": "cadra-trace-tracker",
-  "version": "2.2.3",
-  "description": "Automatic session-trace capture for Cadra-run programs. Records full transcripts ONLY of Claude Code sessions run from the workspace folder marked with .claude-project, spools them into that folder's _traces area, and submits them to the program database at session end. Personal sessions and other projects are never touched. Do not modify - trace data is program evidence.",
+  "version": "3.1.0",
+  "description": "Submit your coding-agent work sessions (Claude Code, Codex, Kiro, Copilot CLI, Cursor, Antigravity, OpenCode) to Cadra for assessment. Skills only: nothing is read or sent unless you ask. All state lives in the workspace's .cadra/ folder, which is gitignored.",
   "author": {
-    "name": "Nishant Sharma",
-    "email": "sharmanish28@gmail.com"
+    "name": "Cadra",
+    "email": "nishant@cadra.info"
   }
 }

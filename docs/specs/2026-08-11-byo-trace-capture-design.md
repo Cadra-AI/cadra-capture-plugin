@@ -71,7 +71,7 @@ The plugin is repurposed, not extended. Deleted outright:
   .cadra/
     config.json       ← token, assessment binding      (chmod 0600 on POSIX)
     state.json        ← per-session submission cursor
-    last-preview.json ← exactly what the last submit sent, for inspection
+    last-preview.json ← exactly what submit would send / did send (§5.2 step 2)
 ```
 
 **Invariant — enforced in review and tests:**
@@ -122,17 +122,23 @@ on model fidelity for correctness.
 
 Triggered by "connect to Cadra", "set up my assessment", "my token is wrong".
 
-1. Ask for the token from the Setup page — the same token a managed candidate
-   pastes into `opencode.json`. Validate shape locally (three dot-separated
-   segments, decodes as JWT, carries `coding_assessment_id`, unexpired). Do not
-   assert on `type`: the server decides what a token may do, and hard-coding the
-   check client-side would break on any future type.
-2. Determine `workspace_root` — the current working directory, confirmed with the
-   candidate. Read `git remote get-url origin` if the workspace is a git repo.
-3. Run `cadra_connect.py`, which appends `.cadra/` to `.gitignore`, writes
-   `config.json`, then calls `GET /v1/traces` to prove the token works.
-4. Report: connected, or the specific failure (expired token, wrong assessment,
-   no network).
+1. `cadra_connect.py --init` appends `.cadra/` to `.gitignore` and creates the
+   folder, then names the file the candidate must paste their token into.
+   **The token is never handled by the model** — not as a command-line argument,
+   not written on the candidate's behalf, not read back. Every command the model
+   runs is recorded in the session transcript, and `cadra-submit` uploads that
+   transcript, so a token on a command line becomes a token in the upload.
+2. The candidate pastes it into `.cadra/token.txt` themselves.
+3. `cadra_connect.py` reads that file, validates the token's shape locally (three
+   dot-separated segments, decodes as JWT, carries `coding_assessment_id`,
+   unexpired) and refuses a non-`https` proxy. It does **not** assert on `type`:
+   the server decides what a token may do, and hard-coding the check client-side
+   would break on any future type.
+4. It then calls `POST /v1/traces/bind` with the resolved `workspace_root`, which
+   proves the token and claims the folder in one call. Only on success does it
+   write `config.json` and delete the paste file, leaving one copy of the token.
+5. Report: connected, or the specific failure (expired token, unaccepted token,
+   folder already bound elsewhere — with the expected folder named — no network).
 
 **Why this exists.** A managed OpenCode candidate discovers a bad token on their
 first prompt, within seconds. A BYO candidate would otherwise discover it at
@@ -143,6 +149,63 @@ Re-running is supported and expected: tokens get reissued, and candidates change
 machines. A re-connect that changes `git_remote` is accepted locally; the server
 decides whether to flag it.
 
+#### What `binding` is for, and what it cannot do
+
+`git_remote` and `git_branch` are **read fresh at submit time**, never taken from
+`config.json`. The remote is not stable across an assessment, and its instability
+is the ordinary path rather than an anomaly: Setup hands the candidate a *template*
+repo, and they push to a public repo of their own at the end. So across one
+assessment `origin` can be absent (they downloaded the template), then the
+template, then their own repo.
+
+That has a consequence the ingest design has to absorb: **the remote cannot be a
+record-time gate.** The authority it would be checked against —
+`coding_assessment_runs.repo_url` — is created by `POST /coding-assessments/{id}/submit`,
+the same call that flips the assessment to `submitted` and starts grading. It does
+not exist while traces are arriving. A trust-on-first-use rule over the remote
+would therefore compare against nothing but the candidate's own earlier claim, and
+would reject the template→own-repo transition, which is correct behaviour.
+
+So the remote is **evidence, reconciled at grade time**: record every remote a
+submission was captured under, never reject on it, and when `repo_url` finally
+arrives, compare. Traces captured entirely against an unrelated repo are a real
+provenance signal; the template→own-repo progression reads as what it is.
+
+Credentials are stripped before the remote is stored or sent. A repo cloned as
+`https://user:ghp_xxx@github.com/o/r.git` yields that string verbatim from git,
+and the server's comparison normalises credentials away anyway — so transmitting
+them stores a live token that is discarded unread at the only point it is used.
+Stripping applies to `http(s)` only: in `ssh://git@github.com/…` the userinfo is
+a login name, not a secret.
+
+**The record-time check that does work is `workspace_root`, and it binds at
+connect.** `cadra-connect` calls `POST /v1/traces/bind` with the resolved
+workspace, which proves the token and claims the folder in one call. Binding at
+the first *submission* instead would leave a trust-on-first-use window with the
+failure pointing the wrong way: the first submission is accepted whatever folder
+it comes from, so a candidate whose first submission is from the wrong project
+binds to it and has their real work rejected for days afterwards. Connect happens
+on day zero, while they are following the Setup instructions in the folder they
+just prepared, and a mismatch is reported there — naming the expected folder — with
+nothing saved.
+
+The submit-time check stays as well. Connect is a client-side call and a crafted
+request can skip it, so `POST /v1/traces` re-checks against the same binding.
+
+**The record-time check that does work is `workspace_root`.** Unlike the remote it
+exists from the moment the candidate connects, and it does not move during normal
+work. Compare the **folder name**, not the full path — `C:\Dev\solution` and
+`/home/me/solution` are one project on two machines, and rejecting that buys
+nothing. A candidate who connects an unrelated side project has a different folder
+name, which is the accidental-capture and casual-misdirection case this is for.
+A changed full path with an unchanged folder name is recorded and reported, not
+rejected.
+
+The value the plugin sends is the directory that actually contains
+`.cadra/config.json`, resolved at submit time — not the string stored at connect.
+Copying `config.json` into another folder therefore produces a different
+`workspace_root`, which is exactly what the check catches.
+
 ### 5.2 `cadra-submit`
 
 Triggered by "submit my trace", "save my work", "send my session to Cadra".
@@ -152,14 +215,19 @@ Triggered by "submit my trace", "save my work", "send my session to Cadra".
    therefore resolve to the innermost one. If none is found, stop and point at
    `cadra-connect` — never guess.
 2. Collect (§6), transform (§7), redact (§8), and write `last-preview.json`.
+   This is `cadra_submit.py --dry-run`: the full pipeline with the network step
+   omitted, so the preview is genuinely *pre*-send rather than a record of what
+   already left.
 3. **Show the candidate a summary before sending**: sessions, turn counts, byte
    size, the redaction count, and every directory each session visited
    (`session.cwds`). This is the consent surface — a session that wandered
    outside the workspace is visible here before anything leaves the machine.
-   Also report any sessions that **touched** the workspace but were started
-   elsewhere and are therefore excluded (§6.1), so a candidate is never silently
-   missing evidence.
-4. Submit per session, chunked (§9).
+   The skill must not proceed without the candidate's agreement; a preview they
+   are shown after the upload is not consent. Also state the session count even
+   when it is zero, so a candidate who launched `claude` from the wrong
+   directory sees it (§6.1).
+4. Submit per session, chunked (§9) — a second run of the same script without
+   `--dry-run`.
 5. Report the server's receipt verbatim — never a local claim of success.
 
 Submission is idempotent: resubmitting an unchanged session is a no-op server-side,
@@ -222,10 +290,24 @@ session wandered somewhere private can decline before anything is sent.
 
 **A session started outside the workspace is excluded, even if most of its work
 was inside.** This is the deliberate inverse of the old hook's
-walk-six-ancestors bug. To stop it being a silent loss, `cadra-submit` **reports**
-such sessions: *"3 sessions touched this workspace but were started elsewhere and
-were not included."* `cadra-connect` tells the candidate to launch `claude` from
-the workspace root.
+walk-six-ancestors bug.
+
+Such sessions are **not** reported, and that is a decision rather than an
+oversight. Reporting them would require looking in directories outside the
+workspace — and because a parent's encoded name is a prefix of the workspace's,
+"outside" climbs all the way to `C--Users-<name>`, the candidate's home
+directory. Probing personal transcripts and printing their paths into the
+pre-send preview is a worse outcome than a missing warning. It would also not
+work: whether an outside session ever *touched* the workspace cannot be decided
+without reading it whole, which §6.1.1 forbids, and a session started in an
+unrelated directory would be missed regardless.
+
+Prevention replaces the warning. `cadra-connect` tells the candidate to launch
+`claude` from the workspace root, and `cadra-submit` states the number of
+sessions found — including zero — before sending anything, so a candidate who
+launched from the wrong directory sees it immediately. Sessions in directories
+we *do* open and then reject (a sibling such as `C:\Dev\ws-other`) are still
+reported individually.
 
 Git worktrees fall out correctly: a cwd under `<workspace>/.claude/worktrees/…`
 is a descendant, so it is included.
@@ -407,19 +489,36 @@ The rule set is implemented once. Canonical source of truth is
 |---|---|
 | `cadra-prototype/proxy/redact.py` | Canonical |
 | `cadra-prototype/backend/services/redact.py` | Byte-identical twin (in-repo parity test) |
-| This plugin: `scripts/redact.py` | Vendored copy for the candidate machine |
+| This plugin: `scripts/cadra/redact.py` | Vendored **rule engine** plus plugin-only `redact_messages` |
 
 Edit order on every rules change: proxy → backend → plugin, then bump
 `rules_version` in all three. The plugin does **not** invent a parallel regex
-table. Cross-repo drift is caught by a release check that hashes
-`scripts/redact.py` against the proxy canonical file (or a checked-in golden
-hash). Envelope field `redaction.rules_version` must match the module constant.
+table.
+
+**The plugin copy is deliberately not byte-identical**, so a whole-file hash
+would report drift forever. Only the rule engine is shared — `RULES_VERSION`,
+the pattern tables, `_shannon_bits`, `_is_safe_shape`, `redact_text`. The
+plugin's `redact_messages` differs by design: it walks `tool_calls` and returns
+the redacted **write paths** for §8.1, which the server has no use for.
+
+So the shared region is delimited in all three files by literal sentinel lines:
+
+```python
+# --- BEGIN SHARED REDACTION RULES (see byo-trace-capture-design §8.0) ---
+...
+# --- END SHARED REDACTION RULES ---
+```
+
+The release check hashes **only the bytes between the sentinels** and compares
+across the three files. Anything outside them is each file's own. A file
+missing its sentinels fails the check rather than being skipped. Envelope field
+`redaction.rules_version` must match the module constant.
 
 **Rules, versioned as `rules_version`:**
 
 | Class | Action |
 |---|---|
-| `.env`-family file reads (`.env`, `.env.*`, `*.pem`, `*.key`, `id_rsa*`) | Drop the tool result body entirely, keep the path |
+| `.env`-family files (`.env`, `.env.*`, `*.pem`, `*.key`, `*.p12`, `*.pfx`, `id_rsa*`, `id_ed25519*`) — **read, written, or named in a shell command** | Drop the body entirely, keep the path |
 | Token shapes (`sk-…`, `ghp_…`, `github_pat_…`, `AKIA…`, `xox[baprs]-…`, JWT triples) | Replace with `[redacted:<class>]` |
 | Assignments matching `(?i)(api[_-]?key|secret|token|password|passwd|credential)\s*[=:]\s*\S+` | Redact the value, keep the key |
 | High-entropy strings: ≥32 chars, single token (no whitespace), drawn from `[A-Za-z0-9+/=_-]`, Shannon entropy ≥ 4.0 bits/char, and **not** matching a known-safe shape (git SHA, UUID, content hash, data-URI payload, file path) | Replace with `[redacted:entropy]` |
@@ -431,9 +530,34 @@ Redaction runs **after** transformation and **before** chunking, so
 Every redaction increments `redacted_count`, surfaced in the pre-send summary. The
 candidate sees "12 secrets redacted" and can inspect `last-preview.json`.
 
+**Why the first rule matches on identity, not content.** Every other rule is a
+pattern matcher, and a pattern matcher catches only what it recognises. Measured
+against a realistic `.env`, six of seven lines survived the other four rules:
+`SMTP_PASS=` is missed because the assignment keyword list has `password` and
+`passwd` but not `pass`, and `postgres://app:pw@host` and `redis://:pw@host` are
+missed because the secret sits inside a URL rather than after the `=`. Extending
+the keyword list is an arms race against a filename that already tells you the
+answer. So these files are dropped whole, unexamined.
+
+Three deliberate details:
+
+- **Writes count, not only reads.** Writing a secrets file puts its contents in
+  the transcript exactly as reading one does. Because a dropped write body
+  changes the lines attestation hashes, that path is reported as truncated
+  (§8.1) — the file leaves the coverage denominator. A read costs nothing, since
+  tool results are never hashed.
+- **Shell commands count.** `cat .env` has no path argument and is at least as
+  common as a `Read`. Matched on a filename token in the command text, which is
+  coarse on purpose: a false positive costs one tool result, a false negative
+  costs a live credential.
+- **Templates are kept.** `.env.example`, `.env.sample`, `.env.template`,
+  `.env.dist` hold placeholders. Reading one is orientation work worth crediting,
+  and dropping it would be pure loss.
+
 **Known limit, stated rather than papered over:** pattern-based redaction is
-best-effort. A secret in an unrecognised format survives. This is why the proxy
-re-scans (D6), and why the candidate preview exists.
+best-effort. A secret in an unrecognised format, in a file with an unremarkable
+name, survives. This is why the proxy re-scans (D6), and why the candidate
+preview exists.
 
 ### 8.1 Redaction vs attestation — a real conflict
 
@@ -551,7 +675,8 @@ No test infrastructure exists in this repo today; it is added with the rewrite.
   name shares the prefix* (`C:/Dev/ws-other`) excluded; worktree cwd included;
   a session that starts in the workspace and later moves outside it is included
   whole, with every cwd listed in `session.cwds`; a session that starts outside
-  and later enters the workspace is excluded **and reported**.
+  and later enters the workspace is excluded, and its project folder is never
+  opened at all (§6.1 — the reporting promise was dropped deliberately).
 - **Enumeration (§6.1.1):** only prefix-matching directories are opened — assert
   by instrumenting file opens that an unrelated project directory is never
   touched; a subagent file is attributed to its parent session and never emitted

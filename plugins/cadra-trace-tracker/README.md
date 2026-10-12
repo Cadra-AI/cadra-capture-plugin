@@ -1,112 +1,326 @@
-# Cadra Trace Tracker — Claude Code Plugin
+# Cadra Trace Tracker — Coding Agent Plugin
 
-Automatic, privacy-gated capture of Claude Code work sessions for program
-evaluation. Sessions run inside a registered project workspace are recorded as
-full prompt traces and submitted to the Cadra program database — with zero
-manual effort in the steady state. Everything outside the workspace is never
-touched.
+Submit your coding-agent work sessions to Cadra for a coding assessment. Works
+with **Claude Code, OpenAI Codex CLI, Kiro, GitHub Copilot CLI, Cursor CLI,
+Google Antigravity CLI (`agy`) and OpenCode**.
 
-## How it works
+The plugin is **skills only**: there are no hooks and no background processes.
+Nothing is read, converted, or sent unless you ask for it in a conversation. All
+state lives in your workspace's `.cadra/` folder, which the plugin gitignores
+before it writes anything into it.
 
-```
-Claude Code session (inside workspace)
-        │  hooks: SessionStart / Stop / SessionEnd
-        ▼
-.claude-project marker?  ──no──▶  total no-op (nothing read, written, or sent)
-        │ yes
-        ▼
-snapshot transcript → _traces/raw → envelope (images stripped) → _traces/pending
-        │
-        ▼
-upload to program database (validated RPC: unknown user IDs rejected,
-server-stamped timestamps, upsert on session growth, analytics meta derived)
-        │
-        ▼
-_traces/sent + server-verified receipt
-```
+## The three skills
 
-**The `.claude-project` file is the entire contract.** Its presence in a folder
-makes that folder a traced workspace; after registration it also holds the
-user's ID. No folder-name matching, no other configuration. Delete-proofing,
-tamper refusal, and disclosure are enforced via session context injected at
-start.
+| Say | Skill | What happens |
+|---|---|---|
+| "connect to Cadra" | `cadra-connect` | Registers this workspace against your assessment token and proves the token works right away. Writes `.cadra/config.json`. |
+| "submit my trace" | `cadra-submit` | Previews exactly what would be sent, waits for your go-ahead, then submits and reports the server's receipt. |
+| "show my traces" | `cadra-traces` | Read-only list of what the server actually holds. Never uploads. |
 
-**Two reliability layers:**
+You can submit as many times as you like. Each session is sent again only if it
+has changed since the last accepted submission. One submit collects the sessions
+of **every** supported agent that ran in this workspace.
 
-- **Hooks (automatic, best-effort):** every response is snapshotted; session
-  end and session start dispatch background uploads with offline queue + retry.
-- **`save-trace` skill (user-triggered, authoritative):** the user says
-  *"save my trace"* anytime — foreground upload, then the server itself is
-  asked which sessions exist, and the user gets a verified receipt.
+## Requirements
 
-## User experience
-
-1. Install the plugin (two commands, below).
-2. Get the project workspace folder (shared separately as a git repo/zip).
-3. Open a terminal in the folder, run `claude`. First session: Claude explains
-   that work here is recorded and asks for the **5-digit user ID** issued to
-   the user by email. That's the entire setup.
-4. Work normally. Traces submit automatically at session end.
-
-Useful phrases inside the workspace:
-
-| Say | What happens |
-|---|---|
-| `save my trace` | Immediate submission with database-confirmed receipt |
-| `show my traces` | List of saved sessions (dates, titles, turns) + anything pending |
-| `my user id is wrong` | Re-registration with confirmation |
+- Python 3.11+ on `PATH`. The skills say `python3`; use `python3` if it exists,
+  else `python`, else `py -3` (usual on Windows). The plugin uses the standard
+  library only; there is nothing to `pip install`.
+- One of the agents above, started in the root of your solution repository.
+- Your assessment token from your Cadra Setup page. (No server address needed —
+  the plugin knows where to submit.)
 
 ## Install
+
+Repository: https://github.com/NishantCadra/Cadra-Claude-Code-Plugin
+
+Claude Code, Codex and Copilot CLI install straight from GitHub. Cursor,
+Antigravity, OpenCode and Kiro load a local folder, so get the files first (the
+location below is only a suggestion; any folder works).
+
+### Get the files
+
+**macOS / Linux (bash or zsh)**
+
+```bash
+git clone https://github.com/NishantCadra/Cadra-Claude-Code-Plugin.git "$HOME/Cadra-Claude-Code-Plugin"
+```
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/NishantCadra/Cadra-Claude-Code-Plugin.git "$HOME\Cadra-Claude-Code-Plugin"
+```
+
+The plugin folder is `<clone>/plugins/cadra-trace-tracker` below. After
+installing, **restart the agent**: skills load when a session starts.
+
+### Claude Code
+
+The same commands on every OS (macOS, Linux, Windows PowerShell):
 
 ```
 claude plugin marketplace add https://github.com/NishantCadra/Cadra-Claude-Code-Plugin
 claude plugin install cadra-trace-tracker@cadra
 ```
 
-Updates ship via `claude plugin marketplace update cadra` followed by reinstall
-(or `claude plugin update`). Windows, macOS, and Linux are supported — hook
-commands try `python3` first and fall back to PowerShell on Windows.
+Check: `claude plugin list`. Then start `claude` and say "connect to Cadra".
+
+Requires Python 3.11+ on `PATH`. The plugin uses the standard library only, so
+there is nothing to `pip install`.
+
+Always start your agent from the root of your solution repository — the same
+folder you connect from — so your sessions are found when you submit.
+
+### Codex CLI
+
+Same on every OS:
+
+```
+codex plugin marketplace add NishantCadra/Cadra-Claude-Code-Plugin
+codex plugin add cadra-trace-tracker@cadra
+```
+
+Check: `codex plugin list`. In Codex, type `$cadra-connect` (or say "connect to
+Cadra"); `/skills` also lists the three skills.
+
+### GitHub Copilot CLI
+
+Same on every OS:
+
+```
+copilot plugin install NishantCadra/Cadra-Claude-Code-Plugin:plugins/cadra-trace-tracker
+```
+
+Check: `/skills list` inside `copilot` shows the three skills.
+
+### Cursor CLI
+
+Cursor loads the plugin from a local folder (get the files first). Start it with
+the folder every time:
+
+```bash
+# macOS / Linux
+agent --plugin-dir "$HOME/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker"
+```
+
+```powershell
+# Windows (PowerShell)
+agent --plugin-dir "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker"
+```
+
+(`cursor-agent` is the older name of the same binary.) Pass `--plugin-dir` every
+time you start a session that should have the skills. Then type `/cadra-connect`,
+`/cadra-submit` or `/cadra-traces`.
+
+### Antigravity CLI (`agy`)
+
+Needs the local files:
+
+```bash
+# macOS / Linux
+agy plugin install "$HOME/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker"
+```
+
+```powershell
+# Windows (PowerShell)
+agy plugin install "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker"
+```
+
+Check: `agy plugin list`. Then say "connect to Cadra".
+
+### OpenCode
+
+OpenCode does not read Claude plugins, so one script copies the three Cadra skills
+and the `/cadra-*` commands into your OpenCode config. It needs only Python 3 and
+the local files from "Get the files" above.
+
+1. Run the installer.
+
+   macOS / Linux:
+
+   ```bash
+   python3 ~/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker/scripts/install_opencode.py
+   ```
+
+   Windows (PowerShell):
+
+   ```powershell
+   py -3 "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker\scripts\install_opencode.py"
+   ```
+
+   This installs globally into `~/.config/opencode` (`%USERPROFILE%\.config\opencode`
+   on Windows). To install for one project only, add `--project <DIR>`. To preview
+   without writing anything, add `--dry-run`.
+
+2. Restart OpenCode.
+
+3. In your solution folder, type `/cadra-connect`, then `/cadra-submit` when you are
+   done. `/cadra-traces` lists what the server holds.
+
+No environment variables are needed. The installer writes the plugin's location into
+the copied skills and does not touch your shell profile.
+
+Check the install (write to a file first; piping `opencode debug skill` straight into
+`grep` can truncate the output):
+
+```bash
+opencode debug skill > /tmp/skills.json; grep cadra /tmp/skills.json
+```
+
+```powershell
+opencode debug skill > $env:TEMP\skills.json; Select-String cadra $env:TEMP\skills.json
+```
+
+Update: `git pull` in the clone, then run the installer
+again. Uninstall: run it with `--uninstall`; it removes only the three Cadra skills
+and three command files it created. Moving or renaming the cloned folder breaks the
+copies; run the installer again.
+
+### Kiro
+
+- **Kiro IDE:** Powers panel → **Add Custom Power** → local path → select the
+  plugin folder: `~/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker` on
+  macOS/Linux, `%USERPROFILE%\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker`
+  on Windows. Then say "connect to Cadra".
+- **Kiro CLI:** it has no plugin command. Use the IDE power, or run the scripts
+  directly (see "Running the scripts directly" below).
+
+The GitHub install gives whatever is on `main`. Agents other than Claude Code
+get their readers only after the multi-agent branch is merged there.
+
+### Python command
+
+The skills run `python3`. On macOS/Linux that is normal. On Windows `python3` is
+often missing or a Store stub; use `py -3` or `python` when you run the scripts by
+hand, and make sure one of them reports 3.11+ (`py -3 --version`).
+
+### Update or reinstall
+
+Every agent installs a copy, so reinstall after the plugin changes. The commands
+are the same on every OS except where a shell form is shown:
+
+| Agent | Reinstall |
+|---|---|
+| Claude Code | `claude plugin marketplace remove cadra`, then the two install commands again |
+| Codex | `codex plugin remove cadra-trace-tracker@cadra`, then `codex plugin add cadra-trace-tracker@cadra` |
+| Copilot | `copilot plugin uninstall cadra-trace-tracker`, then install again |
+| Cursor | nothing to reinstall: `--plugin-dir` reads the folder directly (`git pull` the clone to update it) |
+| Antigravity | `agy plugin uninstall cadra-trace-tracker`, then `git pull` the clone and install again |
+| OpenCode | `git pull` the clone, then run `install_opencode.py` again (`--uninstall` removes it) |
+| Kiro IDE | `git pull` the clone, remove the power in the Powers panel and add it again |
+
+Reinstalling never touches your connection, which lives in the workspace
+(`.cadra/`), not in the plugin.
+
+## Usage
+
+### 1. Connect (once per workspace)
+
+1. In your solution repository, start your agent and say **"connect to Cadra"**.
+   It creates `.cadra/` and adds it to `.gitignore`, then tells you where to put
+   the token: `<workspace>/.cadra/token.txt`.
+2. **Paste the token into that file yourself and save it.** Do not paste it into
+   the chat and do not put it on a command line: the transcript is uploaded on
+   submit, so a token in the chat would be uploaded too.
+3. Say **"connect"** again. You do not need to give a server address — the
+   plugin knows it. It proves the token against the server, saves
+   `.cadra/config.json`, and deletes `token.txt`.
+
+Both live assessment tokens and offline-capture tokens are accepted. You see
+`CONNECTED` on success; on `FAILED` nothing is saved.
+
+Already connected? Do not connect again. `token.txt` is deleted after a
+successful connect, so a "no token file" message only means you are done.
+
+**Which server it talks to.** The plugin resolves this itself, in order:
+`--proxy <url>`, then the `CADRA_PROXY_BASE_URL` environment variable, then its
+built-in default. You never have to supply it, and the agent is told not to
+invent one. The resolved value is stored in `.cadra/config.json` at connect time
+and nothing else changes it; to switch servers, put the token back in
+`.cadra/token.txt` and connect again with the new address.
+
+`https://` is required, with one exception: plain `http://` is accepted on
+`localhost`, `127.0.0.1` or `::1` **with a port**, for running against a local
+server. Those bytes never reach a network. Anything else — including a LAN
+address like `http://192.168.1.50:8080` — is refused, because the token travels
+in a header that must not be readable on the wire.
+
+The address is deliberately **not** taken from the token. Token claims are
+readable without the signing secret and are not verified by the plugin, so a
+claim naming the destination would let unverified input decide where your
+credential is sent.
+
+### 2. Submit
+
+Say **"submit my trace"**. The plugin first runs a dry run: it lists the sessions
+found, the folders each one visited, the message and redaction counts, and writes
+`.cadra/last-preview.json` with exactly what would be sent. **Nothing leaves your
+machine until you agree.** After you confirm it sends, and prints the server's
+receipt per session (`SUBMITTED ... server confirmed N messages`).
+
+### 3. Check what Cadra holds
+
+Say **"show my traces"** for a read-only list of the sessions the server stored.
+
+## Filesystem contract
+
+```
+<workspace>/
+  .gitignore          ← cadra-connect appends ".cadra/" if it is not already there
+  .cadra/
+    token.txt         ← only while connecting: you paste the token here; deleted on success
+    config.json       ← token, proxy URL and assessment binding (chmod 0600 on macOS/Linux)
+    state.json        ← which sessions have been accepted, and at what content
+    last-preview.json ← exactly what the last submit sent, or would have sent
+```
+
+**The write boundary is the load-bearing guarantee:** the plugin writes *only*
+inside `<workspace>/.cadra/`, plus that single append to `<workspace>/.gitignore`
+at connect time. Every other filesystem access is read-only.
+
+The plugin also reads each supported agent's own saved chat history, which lives
+outside your repository. That access is read-only: it never writes there. System
+prompts, reasoning and account ids recorded by the agent are dropped before
+anything is previewed or sent.
 
 ## Privacy model
 
-- **Scope:** only sessions run from a folder containing `.claude-project` are
-  captured. Personal sessions, other projects, and the rest of the machine are
-  never read. A folder without the marker produces zero activity — no logs, no
-  files, no network.
-- **Disclosure:** every traced session announces it is being recorded, once,
-  at session start.
-- **Minimisation:** pasted images are stripped before upload. The shipped
-  database key can only call the validated submit/list endpoints — it cannot
-  read other users' data, update, or delete anything.
-- **Transparency:** everything captured sits readable on the user's own disk
-  (`_traces/`) before and after upload; `_traces/tracker.log` records every
-  capture decision; `show my traces` reflects the server's actual state.
-- **Identity:** the user types a 5-digit ID once. Names/emails live only in
-  the server-side roster; the server validates every upload against it and
-  stamps identity and time itself.
+- **You trigger everything.** No hooks, no session-end uploads, no background
+  daemon. If you never say "submit my trace", nothing ever leaves the machine.
+- **Preview before send.** `cadra-submit` runs a dry run first: it builds the
+  exact payload, writes it to `.cadra/last-preview.json`, prints every working
+  directory the sessions visited, and sends nothing. You decide from there.
+- **Scope.** Only sessions started in this workspace or below it are collected.
+  Sessions started elsewhere are never read.
+- **Redaction.** Secrets matching the shared rule set are replaced before the
+  payload is hashed or sent, and the affected files are reported to the server so
+  they are excluded from scoring rather than counted against you.
+- **No database credentials.** The plugin holds one assessment token, issued to
+  you, and talks only to the Cadra proxy. Identity is derived server-side from
+  the token; the client never asserts who you are.
+- **The server is the authority.** A submission is reported as saved only when
+  the server has confirmed it.
 
 ## Repository layout
 
 ```
 .claude-plugin/marketplace.json          marketplace listing
 plugins/cadra-trace-tracker/
-  .claude-plugin/plugin.json             plugin manifest
-  hooks/hooks.json                       SessionStart / Stop / SessionEnd wiring
-  scripts/trace_hook.py|trace-hook.ps1   gate + snapshot + context + dispatch
-  scripts/submit_traces.py|-traces.ps1   harvest, upload, verify, --list
-  skills/register-user/                  one-question registration
-  skills/save-trace/                     verified on-demand submission
-  skills/my-traces/                      read-only saved-sessions view
-TESTING.md                               two-tester validation guide
+  plugin.json                            Agent Plugins 1.0 manifest (all hosts)
+  .claude-plugin/plugin.json             Claude Code manifest
+  skills/cadra-connect/                  register the workspace
+  skills/cadra-submit/                   preview, confirm, submit
+  skills/cadra-traces/                   read-only view of stored sessions
+  scripts/cadra_connect.py               connect entry point
+  scripts/cadra_submit.py                submit entry point
+  scripts/cadra_traces.py                list entry point
+  scripts/cadra/                         collect, adapt, redact, envelope, client
+  scripts/cadra/codex.py                 Codex CLI rollout reader
+  scripts/cadra/kiro.py                  Kiro session reader
+  scripts/cadra/copilot.py               Copilot CLI session reader
+  scripts/cadra/cursor.py                Cursor CLI transcript reader
+  scripts/cadra/antigravity.py           Antigravity CLI conversation reader
+  scripts/cadra/opencode.py              OpenCode session reader
+  scripts/install_opencode.py            OpenCode installer (skills + /cadra-* commands)
 ```
-
-## Versioning
-
-| Branch | State |
-|---|---|
-| `main` | Current release (v2.2.1): skills + hooks, single-marker identity |
-| `v2.0-hooks-only` | Previous release: hooks-only capture, pre-skills |
-
-Trace data is program evidence. Do not modify the plugin, the workspace's
-`_traces/` contents, or the `.claude-project` file (beyond registration) —
-tampering is treated as misconduct.

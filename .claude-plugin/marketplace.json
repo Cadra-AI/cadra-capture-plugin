@@ -8,7 +8,7 @@
     {
       "name": "cadra-trace-tracker",
       "source": "./plugins/cadra-trace-tracker",
-      "description": "Automatic session-trace capture for Cadra-run programs. Captures only sessions run from the claude-code-project workspace folder."
+      "description": "Submit your coding-agent work sessions (Claude Code, Codex, Kiro, Copilot CLI, Cursor, Antigravity, OpenCode) to Cadra for assessment. Skills only — nothing is captured or sent unless you ask."
     }
   ]
 }
