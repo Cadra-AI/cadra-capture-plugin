@@ -32,7 +32,7 @@ of **every** supported agent that ran in this workspace.
 
 ## Install
 
-Repository: https://github.com/NishantCadra/Cadra-Claude-Code-Plugin
+Repository: https://github.com/Cadra-AI/cadra-capture-plugin
 
 Claude Code, Codex and Copilot CLI install straight from GitHub. Cursor,
 Antigravity, OpenCode and Kiro load a local folder, so get the files first (the
@@ -43,13 +43,13 @@ location below is only a suggestion; any folder works).
 **macOS / Linux (bash or zsh)**
 
 ```bash
-git clone https://github.com/NishantCadra/Cadra-Claude-Code-Plugin.git "$HOME/Cadra-Claude-Code-Plugin"
+git clone https://github.com/Cadra-AI/cadra-capture-plugin.git "$HOME/cadra-capture-plugin"
 ```
 
 **Windows (PowerShell)**
 
 ```powershell
-git clone https://github.com/NishantCadra/Cadra-Claude-Code-Plugin.git "$HOME\Cadra-Claude-Code-Plugin"
+git clone https://github.com/Cadra-AI/cadra-capture-plugin.git "$HOME\cadra-capture-plugin"
 ```
 
 The plugin folder is `<clone>/plugins/cadra-trace-tracker` below. After
@@ -60,7 +60,7 @@ installing, **restart the agent**: skills load when a session starts.
 The same commands on every OS (macOS, Linux, Windows PowerShell):
 
 ```
-claude plugin marketplace add https://github.com/NishantCadra/Cadra-Claude-Code-Plugin
+claude plugin marketplace add https://github.com/Cadra-AI/cadra-capture-plugin
 claude plugin install cadra-trace-tracker@cadra
 ```
 
@@ -71,7 +71,7 @@ Check: `claude plugin list`. Then start `claude` and say "connect to Cadra".
 Same on every OS:
 
 ```
-codex plugin marketplace add NishantCadra/Cadra-Claude-Code-Plugin
+codex plugin marketplace add Cadra-AI/cadra-capture-plugin
 codex plugin add cadra-trace-tracker@cadra
 ```
 
@@ -83,7 +83,7 @@ Cadra"); `/skills` also lists the three skills.
 Same on every OS:
 
 ```
-copilot plugin install NishantCadra/Cadra-Claude-Code-Plugin:plugins/cadra-trace-tracker
+copilot plugin install Cadra-AI/cadra-capture-plugin:plugins/cadra-trace-tracker
 ```
 
 Check: `/skills list` inside `copilot` shows the three skills.
@@ -95,12 +95,12 @@ the folder every time:
 
 ```bash
 # macOS / Linux
-agent --plugin-dir "$HOME/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker"
+agent --plugin-dir "$HOME/cadra-capture-plugin/plugins/cadra-trace-tracker"
 ```
 
 ```powershell
 # Windows (PowerShell)
-agent --plugin-dir "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker"
+agent --plugin-dir "$HOME\cadra-capture-plugin\plugins\cadra-trace-tracker"
 ```
 
 (`cursor-agent` is the older name of the same binary.) Pass `--plugin-dir` every
@@ -113,12 +113,12 @@ Needs the local files:
 
 ```bash
 # macOS / Linux
-agy plugin install "$HOME/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker"
+agy plugin install "$HOME/cadra-capture-plugin/plugins/cadra-trace-tracker"
 ```
 
 ```powershell
 # Windows (PowerShell)
-agy plugin install "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker"
+agy plugin install "$HOME\cadra-capture-plugin\plugins\cadra-trace-tracker"
 ```
 
 Check: `agy plugin list`. Then say "connect to Cadra".
@@ -134,13 +134,13 @@ the local files from "Get the files" above.
    macOS / Linux:
 
    ```bash
-   python3 ~/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker/scripts/install_opencode.py
+   python3 ~/cadra-capture-plugin/plugins/cadra-trace-tracker/scripts/install_opencode.py
    ```
 
    Windows (PowerShell):
 
    ```powershell
-   py -3 "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker\scripts\install_opencode.py"
+   py -3 "$HOME\cadra-capture-plugin\plugins\cadra-trace-tracker\scripts\install_opencode.py"
    ```
 
    This installs globally into `~/.config/opencode` (`%USERPROFILE%\.config\opencode`
@@ -174,14 +174,14 @@ copies; run the installer again.
 ### Kiro
 
 - **Kiro IDE:** Powers panel → **Add Custom Power** → local path → select the
-  plugin folder: `~/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker` on
-  macOS/Linux, `%USERPROFILE%\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker`
+  plugin folder: `~/cadra-capture-plugin/plugins/cadra-trace-tracker` on
+  macOS/Linux, `%USERPROFILE%\cadra-capture-plugin\plugins\cadra-trace-tracker`
   on Windows. Then say "connect to Cadra".
 - **Kiro CLI:** it has no plugin command. Use the IDE power, or run the scripts
   directly (see "Running the scripts directly" below).
 
-The GitHub install gives whatever is on `main`. Agents other than Claude Code
-get their readers only after the multi-agent branch is merged there.
+The GitHub install gives whatever is on `main`, which now includes the readers
+for every agent listed above.
 
 ### Python command
 

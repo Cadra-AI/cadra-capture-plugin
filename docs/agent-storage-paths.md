@@ -108,7 +108,7 @@ The skills just run three scripts, so you can too. Use an absolute `--workspace`
 **macOS / Linux**
 
 ```bash
-SCRIPTS="$HOME/Cadra-Claude-Code-Plugin/plugins/cadra-trace-tracker/scripts"
+SCRIPTS="$HOME/cadra-capture-plugin/plugins/cadra-trace-tracker/scripts"
 
 python3 "$SCRIPTS/cadra_connect.py" --workspace /path/to/solution --init
 python3 "$SCRIPTS/cadra_connect.py" --workspace /path/to/solution --proxy https://YOUR-PROXY
@@ -120,7 +120,7 @@ python3 "$SCRIPTS/cadra_traces.py"  --workspace /path/to/solution
 **Windows (PowerShell)**: use `py -3` (or `python`) in place of `python3`.
 
 ```powershell
-$S = "$HOME\Cadra-Claude-Code-Plugin\plugins\cadra-trace-tracker\scripts"
+$S = "$HOME\cadra-capture-plugin\plugins\cadra-trace-tracker\scripts"
 $W = "C:\path\to\solution"
 
 py -3 "$S\cadra_connect.py" --workspace $W --init
