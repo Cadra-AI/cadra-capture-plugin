@@ -12,7 +12,7 @@ import pytest
 import cadra_connect
 import cadra_submit
 import cadra_traces
-from cadra import collect, config
+from cadra import claude, collect, config
 from tests.conftest import write_jsonl
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "plugins" / "cadra-trace-tracker" / "scripts"
@@ -23,7 +23,7 @@ def connected(workspace: Path, transcripts: Path):
     config.save(workspace, {"token": "tok", "workspace_root": str(workspace),
                             "proxy_base_url": "https://proxy.test",
                             "git_remote": "https://github.com/c/s.git"})
-    enc = collect.encode_dir_name(Path(str(workspace)).resolve())
+    enc = claude.encode_dir_name(Path(str(workspace)).resolve())
     write_jsonl(transcripts / enc / "sess1.jsonl", [
         {"type": "user", "cwd": str(workspace), "sessionId": "sess1",
          "timestamp": "2026-08-11T09:00:00Z", "version": "2.0.14",
@@ -167,3 +167,9 @@ def test_workspace_comes_from_the_flag(connected, transcripts, tmp_path, monkeyp
                               str(transcripts), "--dry-run"])
     assert code == 0
     assert "FOUND 1" in capsys.readouterr().out
+
+
+def test_a_session_must_name_its_host():
+    import pytest
+    with pytest.raises(TypeError):
+        collect.Session(session_id="x", main_file=Path("x"), origin_cwd="/w")  # no host=

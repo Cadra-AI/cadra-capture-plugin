@@ -2,7 +2,7 @@
 import json
 from pathlib import Path
 import cadra_submit
-from cadra import collect, cursor
+from cadra import cursor
 from tests.conftest import CURSOR_UUID, write_jsonl
 def test_session_found_via_meta_cwd(cursor_root: Path, workspace: Path):
     sessions, notes = cursor.discover(cursor_root, workspace)
@@ -55,11 +55,30 @@ def test_unparseable_lines_are_counted(cursor_root: Path, workspace: Path):
     with open(session.main_file, "a", encoding="utf-8") as handle:
         handle.write("{broken\n")
     assert cursor.load_session(session, workspace)[1]["unreadable_lines"] == 1
-def test_default_root_honours_cursor_home(tmp_path: Path, monkeypatch):
-    monkeypatch.setenv("CURSOR_HOME", str(tmp_path / "ch"))
-    assert cursor.default_root() == tmp_path / "ch"
-    monkeypatch.delenv("CURSOR_HOME")
+def test_transcripts_root_is_fixed_and_chats_follow_the_config_dir(tmp_path, monkeypatch):
+    # Cursor writes transcripts under ~/.cursor unconditionally, but chats/ (the
+    # meta.json that names the cwd) under its config dir, which XDG can move.
+    monkeypatch.delenv("CURSOR_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
     assert cursor.default_root() == Path.home() / ".cursor"
+    assert cursor.config_root() == Path.home() / ".cursor"
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    assert cursor.default_root() == Path.home() / ".cursor"
+    assert cursor.config_root() == tmp_path / "xdg" / "cursor"
+    monkeypatch.setenv("CURSOR_CONFIG_DIR", str(tmp_path / "cfg"))
+    assert cursor.config_root() == tmp_path / "cfg"
+
+
+def test_split_layout_finds_meta_in_the_config_dir(cursor_root: Path, workspace: Path,
+                                                   tmp_path: Path, monkeypatch):
+    # Linux with XDG_CONFIG_HOME set: ~/.cursor/projects/... but
+    # ~/.config/cursor/chats/...; before, every session was "no session metadata".
+    cfg = tmp_path / "xdg" / "cursor"
+    (cfg / "chats").parent.mkdir(parents=True)
+    (cursor_root / "chats").rename(cfg / "chats")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    sessions, notes = cursor.discover(cursor_root, workspace)
+    assert [s.origin_cwd for s in sessions] == [str(workspace)], notes
 def test_host_flag_is_wired(cursor_root: Path, workspace: Path, capsys):
     from cadra import config
     config.save(workspace, {"token": "t", "workspace_root": str(workspace),

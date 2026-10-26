@@ -22,6 +22,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default=".")
+    parser.add_argument("--proxy", default="", help="override the proxy address for this run")
     args = parser.parse_args(argv)
 
     workspace = config.find_workspace(Path(args.workspace))
@@ -29,7 +30,8 @@ def main(argv: list[str] | None = None) -> int:
         print("NOT CONNECTED: run cadra-connect first.")
         return 1
     cfg = config.load(workspace)
-    status, payload = client.get_traces(base_url=cfg["proxy_base_url"],
+    proxy = config.resolve_proxy(args.proxy, cfg.get("proxy_base_url", ""))
+    status, payload = client.get_traces(base_url=proxy,
                                         token=cfg["token"])
     if status != 200:
         error = payload.get("error") or {}

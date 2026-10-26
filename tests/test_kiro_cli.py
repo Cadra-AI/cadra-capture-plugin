@@ -49,7 +49,7 @@ def test_cli_layout_scoped_and_mapped(tmp_path: Path, workspace: Path):
     assert "secret thoughts" not in json.dumps(messages)
     assert meta["unmapped_parts"] == {"AssistantMessage.mystery": 1, "Weird": 1}
     assert meta["started_at"] == "2026-08-11T09:00:00.000000Z"
-    assert str(workspace / "sub") in meta["cwds"]
+    assert workspace / "sub" in [Path(c) for c in meta["cwds"]]  # separator-blind
 def test_both_layouts_dedupe(kiro_root: Path, workspace: Path):
     _write(kiro_root, "s1", str(workspace))  # same id as the fixture's session
     _write(kiro_root, "c9", str(workspace))

@@ -1,7 +1,7 @@
 """Size controls and chunking (spec §9).
 
 Measured on real transcripts: image stripping and dropping thinking blocks do the
-work (both handled in adapt.py); the caps below never fired on any observed
+work (both handled in claude.py); the caps below never fired on any observed
 session and exist as bounded-cost insurance against a pathological one.
 """
 from __future__ import annotations

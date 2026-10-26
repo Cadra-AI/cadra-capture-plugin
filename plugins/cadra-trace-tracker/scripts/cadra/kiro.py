@@ -1,4 +1,4 @@
-"""Kiro sessions -> canonical messages (same shape as adapt.py).
+"""Kiro sessions -> canonical messages (same shape as claude.py).
 
 Store (read-only): `$KIRO_HOME` or `~/.kiro`, then
 `sessions/<hash>/sess_<id>/` holding `session.json`,
@@ -17,7 +17,8 @@ Store (read-only): `$KIRO_HOME` or `~/.kiro`, then
   parent tool-use id, so none is sent.
 - When Kiro offloads a long tool result it keeps a truncated text that mentions
   `tool-outputs`. That text is what is sent; the count is reported as a NOTE.
-- Second layout (v3 CLI, VERIFIED locally, structure only): flat files in
+- Second layout (the V2 chat engine, still the CLI default until Kiro CLI 3.0; VERIFIED
+  locally, structure only): flat files in
   `sessions/cli/`: `<uuid>.json` (`session_id`, `cwd`, `created_at`, `updated_at`,
   `title`, `session_state`...; the state, permissions and model ids are never sent),
   `<uuid>.jsonl` and `<uuid>.history` (prompt history, `.lock`: never opened).
@@ -66,7 +67,7 @@ def legacy_db_candidates() -> list[Path]:
     return [p / "data.sqlite3" for p in paths]
 def _legacy_rows(db: Path) -> int:
     try:
-        conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+        conn = collect.open_sqlite_ro(db)
         with conn:
             return sum(conn.execute(f"SELECT count(*) FROM {t}").fetchone()[0]
                        for t in ("conversations", "conversations_v2"))

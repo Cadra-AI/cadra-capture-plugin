@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 import cadra_submit
-from cadra import config
+from cadra import claude, config
 from tests.conftest import write_jsonl
 
 
@@ -18,8 +18,7 @@ def connected(workspace: Path, transcripts: Path):
     config.save(workspace, {"token": "tok", "workspace_root": str(workspace),
                             "proxy_base_url": "https://proxy.test",
                             "git_remote": "https://github.com/c/s.git"})
-    from cadra import collect
-    enc = collect.encode_dir_name(Path(str(workspace)).resolve())
+    enc = claude.encode_dir_name(Path(str(workspace)).resolve())
     write_jsonl(transcripts / enc / "sess1.jsonl", [
         {"type": "user", "cwd": str(workspace), "sessionId": "sess1",
          "timestamp": "2026-08-11T09:00:00Z", "version": "2.0.14",
@@ -180,8 +179,7 @@ def test_malformed_lines_are_counted_and_reported_not_fatal(
     connected: Path, transcripts: Path, monkeypatch, capsys
 ):
     """§10: skip the line, count it, report the count — never abort."""
-    from cadra import collect
-    enc = collect.encode_dir_name(Path(str(connected)).resolve())
+    enc = claude.encode_dir_name(Path(str(connected)).resolve())
     path = transcripts / enc / "sess1.jsonl"
     with open(path, "a", encoding="utf-8") as handle:
         handle.write("{not json\n")
@@ -252,12 +250,11 @@ def test_a_directory_entered_after_the_preview_is_called_out(
 ):
     """The dry run and the send are separate runs and the transcript grows
     between them, so the preview cannot be the last word on where a session went."""
-    from cadra import collect
     cadra_submit.main(["--workspace", str(connected),
                        "--projects-root", str(transcripts), "--dry-run"])
     capsys.readouterr()
 
-    enc = collect.encode_dir_name(Path(str(connected)).resolve())
+    enc = claude.encode_dir_name(Path(str(connected)).resolve())
     with open(transcripts / enc / "sess1.jsonl", "a", encoding="utf-8") as handle:
         handle.write(json.dumps(
             {"type": "user", "cwd": str(connected / "private-notes"),
@@ -290,3 +287,27 @@ def test_the_remote_is_read_at_submit_time_not_frozen_at_connect(
     # The fixture's config.json records github.com/c/s.git from connect time.
     assert sent[0]["binding"]["git_remote"] == \
         "https://github.com/candidate/solution.git"
+
+
+def test_a_moved_proxy_is_followed_without_reconnecting(connected: Path, transcripts: Path,
+                                                        monkeypatch):
+    """The workspace pinned https://proxy.test at connect time; the environment and
+    the flag must still win, in that order, so one setting moves every workspace."""
+    seen: list[str] = []
+
+    def _post(*, base_url, token, body):
+        seen.append(base_url)
+        return 202, {"accepted": True, "session_id": body["session"]["session_id"],
+                     "messages": len(body["messages"]), "received_at": "now"}
+
+    monkeypatch.setattr(cadra_submit.client, "post_chunk", _post)
+    monkeypatch.setattr(cadra_submit.repo, "git_remote", lambda ws: "")
+    monkeypatch.setenv(config.PROXY_ENV_VAR, "https://moved.example")
+    assert cadra_submit.main(["--workspace", str(connected),
+                              "--projects-root", str(transcripts)]) == 0
+    assert seen[-1] == "https://moved.example"
+    # The second run would SKIP the unchanged session and post nothing; forget it.
+    (connected / ".cadra" / "state.json").unlink()
+    assert cadra_submit.main(["--workspace", str(connected), "--proxy", "https://flag.example",
+                              "--projects-root", str(transcripts)]) == 0
+    assert seen[-1] == "https://flag.example"

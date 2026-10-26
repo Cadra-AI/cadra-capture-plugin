@@ -12,9 +12,56 @@ def _db(root: Path, name: str = AGY_ID) -> Path:
 
 def test_session_found_via_trajectory_cwd(agy_root: Path, workspace: Path):
     sessions, notes = antigravity.discover(agy_root, workspace)
-    assert [(s.session_id, s.host, s.origin_cwd) for s in sessions] == [
-        (AGY_ID, "antigravity", str(workspace))]
+    # Path objects: the reader decodes a file:// URI to forward slashes, which on
+    # Windows is the same path as str(workspace) but not the same string.
+    assert [(s.session_id, s.host, Path(s.origin_cwd)) for s in sessions] == [
+        (AGY_ID, "antigravity", workspace)]
     assert any("reverse-engineered and unverified" in n for n in notes)
+
+
+def test_generic_tool_steps_carry_results_for_any_tool(tmp_path: Path, workspace: Path):
+    # agy >= 1.3.x records every tool execution as step type 132 (GENERIC): the
+    # call it answers in 5.4.{1,2}, the result text in 140.2.1. Older sessions used
+    # per-tool types (8 = view_file at 14.4); both must keep working.
+    from tests.conftest import agy_call
+    root = tmp_path / "agy-132"
+    make_agy_db(_db(root), [
+        agy_step(14, pb(19, pb(2, "run it"))),
+        agy_step(15, pb(20, pb(8, "Running.") + agy_call("srv-a", "run_command", {"Cmd": "ls"})
+                        + agy_call("srv-b", "view_file", {"AbsolutePath": "/x"})
+                        + agy_call("srv-c", "run_command", {"Cmd": "pending"})),
+                 seconds=1_786_000_010),
+        agy_step(132, pb(5, pb(4, pb(1, "srv-a") + pb(2, "run_command")))
+                 + pb(140, pb(2, pb(1, "\nThe command exited with code 0.\nOutput:\na.py\n"))),
+                 seconds=1_786_000_020),
+        agy_step(8, pb(5, pb(4, pb(1, "srv-b") + pb(2, "view_file"))) + pb(14, pb(4, "# hi\n")),
+                 seconds=1_786_000_030),
+        agy_step(132, pb(5, pb(4, pb(1, "srv-c") + pb(2, "run_command")))),  # no result yet
+    ], workspace)
+    session = antigravity.discover(root, workspace)[0][0]
+    messages, meta = antigravity.load_session(session, workspace)
+    tools = [m for m in messages if m["role"] == "tool"]
+    assert [(m["tool_call_id"], m["content"]) for m in tools] == [
+        ("antigravity-0", "\nThe command exited with code 0.\nOutput:\na.py\n"),
+        ("antigravity-1", "# hi\n")]
+    assert meta["unreadable_lines"] == 0
+
+
+def test_sub_agent_conversations_are_counted_not_collected(agy_root: Path, workspace: Path):
+    # A sub-agent trajectory is its own .db with the same workspace; its metadata
+    # blob names the parent conversation at field 5 (VERIFIED on agy 1.3.2: the
+    # one local child carries it, none of the five top-level conversations do).
+    import sqlite3
+    child = "00000000-0000-4000-8000-0000000000c1"
+    make_agy_db(_db(agy_root, child), [agy_step(14, pb(19, pb(2, "sub work")))], workspace)
+    conn = sqlite3.connect(_db(agy_root, child))
+    blob = conn.execute("select data from trajectory_metadata_blob").fetchone()[0]
+    conn.execute("update trajectory_metadata_blob set data = ?", (blob + pb(5, AGY_ID),))
+    conn.commit()
+    conn.close()
+    sessions, notes = antigravity.discover(agy_root, workspace)
+    assert [s.session_id for s in sessions] == [AGY_ID]
+    assert any("1 sub-agent" in n for n in notes)
 
 
 def test_sibling_folder_cwd_is_excluded(agy_root: Path, workspace: Path):
@@ -58,7 +105,7 @@ def test_messages_tool_calls_results_and_rebase(agy_root: Path, workspace: Path)
     assert messages[2]["tool_call_id"] == "antigravity-1"
     assert messages[2]["content"] == "# hi\n"
     assert messages[0]["client_ts"] == "2026-08-06T07:06:40.250Z"
-    assert meta["cwds"] == [str(workspace)]
+    assert [Path(c) for c in meta["cwds"]] == [workspace]
     assert meta["started_at"] == "2026-08-06T07:06:40.250Z"
     assert meta["ended_at"] == "2026-08-06T07:07:00.250Z"
     assert meta["agent_version"] == "" and meta["unreadable_lines"] == 0

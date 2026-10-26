@@ -29,11 +29,17 @@ one `.gitignore` append.
 
 ## Part 0 — The automated suite
 
-From the repository root:
+From the repository root, with [uv](https://docs.astral.sh/uv/) (the tool the rest of
+the Cadra repos use; nothing is installed into your system Python):
 
 ```
-python -m pytest -q
+uv run --with-requirements requirements-dev.txt python -m pytest -q
 ```
+
+Without uv, any Python 3.11+ works: `python -m pip install -r requirements-dev.txt`
+then `python -m pytest -q` (`py -3` in place of `python` on Windows). The uv command
+is what CI runs on Ubuntu, Windows and macOS for Python 3.11 and 3.12
+(`.github/workflows/tests.yml`), so a green push is the cross-platform check.
 
 - [ ] All tests pass. No test makes a network call; every one runs against a
       temp workspace and a temp transcript root.
@@ -205,7 +211,7 @@ rehearsed against the stub below.
 Standard library only; accepts any token, accepts every chunk, and stores
 nothing. It exists so Parts 2–4 can be walked through end to end before the real
 proxy is built. Save as `stub_proxy.py` **outside** the test repository and run
-`python stub_proxy.py`, then connect with `--proxy https://127.0.0.1:8787`.
+`python stub_proxy.py`, then connect with `--proxy http://127.0.0.1:8787` (or set `CADRA_PROXY_BASE_URL` once for the whole session).
 
 Plain `http://` is refused by design, so the stub needs a TLS certificate —
 generate a self-signed one and wrap the socket with `ssl.SSLContext`. That

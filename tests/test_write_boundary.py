@@ -14,7 +14,7 @@ import pytest
 
 import cadra_connect
 import cadra_submit
-from cadra import collect, config
+from cadra import claude, config
 from tests.conftest import write_jsonl
 
 PLUGIN = Path(__file__).resolve().parents[1] / "plugins" / "cadra-trace-tracker"
@@ -91,7 +91,7 @@ def populated(workspace: Path) -> Path:
 def connected(populated: Path, transcripts: Path, monkeypatch) -> Path:
     config.save(populated, {"token": "tok", "workspace_root": str(populated),
                             "proxy_base_url": "https://proxy.test"})
-    enc = collect.encode_dir_name(Path(str(populated)).resolve())
+    enc = claude.encode_dir_name(Path(str(populated)).resolve())
     write_jsonl(transcripts / enc / "s1.jsonl", [
         {"type": "user", "cwd": str(populated), "sessionId": "s1",
          "timestamp": "2026-08-11T09:00:00Z",
@@ -147,7 +147,7 @@ def test_connect_writes_only_cadra_and_appends_to_gitignore(populated: Path,
 
 
 def test_transcripts_are_never_modified(connected: Path, transcripts: Path):
-    enc = collect.encode_dir_name(Path(str(connected)).resolve())
+    enc = claude.encode_dir_name(Path(str(connected)).resolve())
     jsonl = transcripts / enc / "s1.jsonl"
     original = jsonl.read_bytes()
     mtime = jsonl.stat().st_mtime

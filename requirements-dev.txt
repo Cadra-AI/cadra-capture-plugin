@@ -1,0 +1,2 @@
+# Test-only dependencies. The plugin itself is standard library only.
+pytest>=8,<9

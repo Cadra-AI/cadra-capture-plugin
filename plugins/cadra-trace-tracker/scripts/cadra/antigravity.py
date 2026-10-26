@@ -1,7 +1,7 @@
-"""Google Antigravity CLI (`agy`) chats -> canonical messages (same shape as adapt.py).
+"""Google Antigravity CLI (`agy`) chats -> canonical messages (same shape as claude.py).
 Store (read-only): `$ANTIGRAVITY_HOME` or `~/.gemini/antigravity-cli`.
-- Chat: `conversations/<conversationId>.db`, a SQLite file. It is ALWAYS opened with
-  `file:<path>?mode=ro&immutable=1`, so no `-wal`/`-shm` file is ever created beside it.
+- Chat: `conversations/<conversationId>.db`, a SQLite file. It is opened via
+  `collect.open_sqlite_ro`: read-only, so no `-wal`/`-shm` file is ever created beside it.
   Conversations stored as `<id>.pb` are not supported; they are counted in one NOTE.
 - Not used: `brain/<id>/.system_generated/logs/transcript_full.jsonl` is an alternative
   transcript source (per third-party docs). It is deliberately not read here.
@@ -12,12 +12,19 @@ Store (read-only): `$ANTIGRAVITY_HOME` or `~/.gemini/antigravity-cli`.
     step_type 15  assistant turn     20.8 = text (equal to 20.1), repeated 20.7 =
                                      tool call {1 id, 2 name, 3 JSON arguments}
     step_type 8   view_file result   5.4.1 = id of the call it answers, 14.4 = file text
+                                     (older agy; current agy writes no type-8 steps)
+    step_type 132 GENERIC tool result 5.4.1 = call id, 5.4.2 = tool name, 140.2.1 =
+                                     result text (agy >= 1.3.x, every tool; VERIFIED
+                                     on agy 1.3.2 sessions: view_file, run_command,
+                                     send_message)
   Every other step type is NOT mapped and is counted in a NOTE. Tool calls of any tool
-  come from the type-15 turn (each call id is repeated by exactly one later step), but
-  only `view_file` output is mapped; other tools' results sit in per-tool layouts that
-  were not validated, so those calls have no result message.
+  come from the type-15 turn (each call id is repeated by exactly one later step). On
+  older agy only `view_file` (type 8) results are mapped; other per-tool step types
+  (5, 9, 21...) were not validated, so those calls have no result message there.
 - Timestamps: `steps.metadata` field 1 = {1 unix seconds, 2 nanoseconds}. For user steps
   it equals the `history.jsonl` timestamp to the millisecond.
+- Sub-agent trajectories (type 127 `INVOKE_SUBAGENT` in the parent) are separate `.db`
+  files whose metadata field 5 names the parent; they are counted, not collected.
 - Working directory: `trajectory_metadata_blob.data` field 1.1 (else field 7) is a
   `file://` URI of the workspace; `history.jsonl` (`workspace` by `conversationId`) is
   the fallback. The store holds no agent version.
@@ -32,15 +39,15 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 from cadra import adapt, collect
 HOST = "antigravity"
-USER_INPUT, ASSISTANT_TURN, VIEW_FILE = 14, 15, 8
-MAPPED_TYPES = (USER_INPUT, ASSISTANT_TURN, VIEW_FILE)
+USER_INPUT, ASSISTANT_TURN, VIEW_FILE, GENERIC_TOOL = 14, 15, 8, 132
+MAPPED_TYPES = (USER_INPUT, ASSISTANT_TURN, VIEW_FILE, GENERIC_TOOL)
 #: Antigravity's own argument names that hold file system paths.
 PATH_KEYS = adapt.PATH_ARG_KEYS + (
     "AbsolutePath", "TargetFile", "DirectoryPath", "SearchPath", "SearchDirectory", "Cwd")
 MAX_HISTORY_BYTES = 8 * 1024 * 1024
 UNVERIFIED = ("the Antigravity chat format is reverse-engineered and unverified "
               "(no public schema); only user prompts, assistant text, tool calls and "
-              "view_file results are read")
+              "tool results are read")
 def default_root() -> Path:
     home = os.environ.get("ANTIGRAVITY_HOME")
     return Path(home) if home else Path.home() / ".gemini" / "antigravity-cli"
@@ -101,8 +108,7 @@ def _stamp(metadata: bytes | None) -> str | None:
         return None
     return moment.strftime("%Y-%m-%dT%H:%M:%S.") + f"{moment.microsecond // 1000:03d}Z"
 def _connect(path: Path) -> sqlite3.Connection:
-    """Read-only AND immutable: SQLite then never touches -wal/-shm sidecars."""
-    return sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    return collect.open_sqlite_ro(path)
 def _uri_to_path(uri: str) -> str:
     if not uri.startswith("file://"):
         return ""
@@ -135,9 +141,20 @@ def _origin_cwd(conn: sqlite3.Connection) -> str:
     except ValueError:
         pass
     return ""
+def _parent_id(conn: sqlite3.Connection) -> str:
+    """A sub-agent trajectory names its parent conversation at metadata field 5
+    (VERIFIED on agy 1.3.2: the one child has it, no top-level conversation does)."""
+    row = conn.execute("select data from trajectory_metadata_blob limit 1").fetchone()
+    try:
+        return _text(_get(row[0], 5)) if row else ""
+    except ValueError:
+        return ""
+
+
 def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[str]]:
     sessions: list[collect.Session] = []
     notes: list[str] = []
+    subagents = 0
     folder = root / "conversations"
     if not folder.is_dir():
         return sessions, notes
@@ -152,6 +169,7 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
             conn = _connect(path)
             try:
                 cwd = _origin_cwd(conn)
+                parent = _parent_id(conn)
                 counts = conn.execute(
                     "select step_type, count(*) from steps group by step_type").fetchall()
             finally:
@@ -168,6 +186,9 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
         if not collect.in_scope(cwd, workspace):
             notes.append(f"{path.stem[:8]}: started elsewhere ({cwd}) — not included")
             continue
+        if parent:  # its work is the parent's `invoke_subagent` call, not a session
+            subagents += 1
+            continue
         skipped = {t: n for t, n in counts if t not in MAPPED_TYPES}
         detail = ", ".join(f"type {t} x{n}" for t, n in sorted(skipped.items()))
         notes.append(f"{path.stem[:8]}: {sum(skipped.values())} of "
@@ -175,6 +196,8 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
                      + (f" ({detail})" if detail else ""))
         sessions.append(collect.Session(session_id=path.stem, main_file=path,
                                         origin_cwd=cwd, host=HOST))
+    if subagents:
+        notes.append(f"antigravity: {subagents} sub-agent conversation(s) not included")
     if sessions:
         notes.append(f"antigravity: {UNVERIFIED}")
     return sessions, notes
@@ -232,9 +255,12 @@ def load_session(session: collect.Session, workspace: Path) -> tuple[list[dict],
                     message["tool_calls"] = calls
                 if len(message) > 1:
                     messages.append({**message, **stamped})
-            else:  # VIEW_FILE: the file text answers the call named in 5.4.1
+            else:  # a tool result answers the call named in 5.4.1
                 call = ids.get(_text(_get(payload, 5, 4, 1)))
-                text = _text(_get(payload, 14, 4))
+                # 8 (view_file, older agy) keeps the text at 14.4; 132 (GENERIC, agy
+                # >= 1.3.x, every tool) at 140.2.1. Empty means not finished yet.
+                text = _text(_get(payload, 14, 4) if step_type == VIEW_FILE
+                             else _get(payload, 140, 2, 1))
                 if call and text:
                     messages.append({"role": "tool", "tool_call_id": call,
                                      "content": text, **stamped})
