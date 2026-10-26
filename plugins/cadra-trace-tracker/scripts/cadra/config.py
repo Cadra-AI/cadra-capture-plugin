@@ -33,17 +33,29 @@ DEFAULT_PROXY_BASE_URL = "https://proxy.cadra.info"
 PROXY_ENV_VAR = "CADRA_PROXY_BASE_URL"
 
 
-def resolve_proxy(cli_value: str) -> str:
-    """The proxy base URL: explicit flag, then environment, then the default.
+def resolve_proxy(cli_value: str, stored: str = "") -> str:
+    """The proxy base URL, the ONE chain every script uses: explicit flag, then
+    environment, then the address pinned in `.cadra/config.json` (only present
+    when connect was given one explicitly), then the built-in default.
 
-    Takes no token on purpose — see DEFAULT_PROXY_BASE_URL. Never returns empty,
-    so a missing value can no longer surface as a scheme-check failure.
+    So moving the proxy is one change: a new default in a release moves every
+    workspace that never pinned one, and `CADRA_PROXY_BASE_URL` moves all of them
+    at once without reconnecting. Takes no token on purpose — see
+    DEFAULT_PROXY_BASE_URL. Never returns empty.
     """
-    for candidate in (cli_value, os.environ.get(PROXY_ENV_VAR, "")):
+    for candidate in (cli_value, os.environ.get(PROXY_ENV_VAR, ""), stored):
         value = (candidate or "").strip()
         if value:
             return value.rstrip("/")
     return DEFAULT_PROXY_BASE_URL.rstrip("/")
+
+
+def explicit_proxy(cli_value: str) -> str:
+    """The address the operator gave (flag or environment), "" when neither."""
+    for candidate in (cli_value, os.environ.get(PROXY_ENV_VAR, "")):
+        if (candidate or "").strip():
+            return candidate.strip().rstrip("/")
+    return ""
 
 
 def config_dir(workspace: Path) -> Path:

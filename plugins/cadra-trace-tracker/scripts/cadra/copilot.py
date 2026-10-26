@@ -1,4 +1,4 @@
-"""GitHub Copilot CLI sessions -> canonical messages (same shape as adapt.py).
+"""GitHub Copilot CLI sessions -> canonical messages (same shape as claude.py).
 
 Store (read-only): `$COPILOT_HOME` or `~/.copilot`, then
 `session-state/<uuid>/events.jsonl`. Dot dirs in
@@ -14,9 +14,10 @@ Every line is `{type, id, parentId, timestamp, data}`.
   (`system.message`, `session.model_change`, `session.shutdown`,
   `tool.execution_start`, ...) is dropped.
 
-Only `session.start`, `session.model_change` and `session.shutdown` were seen in a
-real store. The conversation shapes come from the published Copilot SDK docs and
-are unverified, so discovery says so once per in-scope session.
+Shapes VERIFIED against real Copilot CLI 1.0.93 transcripts (2026-10): the
+`session.start` context, `user.message` content/transformedContent, assistant
+`toolRequests`, and `tool.execution_complete` result/error all match. Undocumented
+`model.*` events (full request bodies) are present and dropped.
 """
 from __future__ import annotations
 
@@ -28,8 +29,6 @@ from cadra import adapt, collect
 
 MAX_META_BYTES = 1024 * 1024
 HOST = "github-copilot-cli"
-UNVERIFIED_NOTE = ("Copilot CLI message format is taken from published docs and was not "
-                   "verified against a real transcript; please report mismatches.")
 
 open_text = open  # indirection so tests can observe which files are opened
 
@@ -85,7 +84,6 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
             continue
         sessions.append(collect.Session(session_id=session_id, main_file=path,
                                         origin_cwd=cwd, host=HOST))
-        notes.append(f"{session_id[:8]}: {UNVERIFIED_NOTE}")
     return sessions, notes
 
 

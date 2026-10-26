@@ -115,4 +115,29 @@ def test_resolve_proxy_never_consults_the_token(monkeypatch):
     """
     import inspect
     params = list(inspect.signature(config.resolve_proxy).parameters)
-    assert params == ["cli_value"], params
+    # `stored` is the address an earlier connect pinned from the flag/environment,
+    # i.e. operator input that already passed this guard once — never a claim.
+    assert params == ["cli_value", "stored"], params
+    assert not any(p in ("token", "claims", "jwt") for p in params)
+
+
+def test_resolve_proxy_uses_the_pinned_address_before_the_default(monkeypatch):
+    monkeypatch.delenv(config.PROXY_ENV_VAR, raising=False)
+    assert config.resolve_proxy("", "https://pinned.example/") == "https://pinned.example"
+    assert config.resolve_proxy("", "") == config.DEFAULT_PROXY_BASE_URL
+
+
+def test_environment_and_flag_beat_the_pinned_address(monkeypatch):
+    """Moving the proxy must never require reconnecting every workspace."""
+    monkeypatch.setenv(config.PROXY_ENV_VAR, "https://moved.example")
+    assert config.resolve_proxy("", "https://pinned.example") == "https://moved.example"
+    assert config.resolve_proxy("https://flag.example", "https://pinned.example") == \
+        "https://flag.example"
+
+
+def test_explicit_proxy_is_empty_unless_given(monkeypatch):
+    monkeypatch.delenv(config.PROXY_ENV_VAR, raising=False)
+    assert config.explicit_proxy("") == ""
+    assert config.explicit_proxy(" https://flag.example/ ") == "https://flag.example"
+    monkeypatch.setenv(config.PROXY_ENV_VAR, "https://env.example")
+    assert config.explicit_proxy("") == "https://env.example"

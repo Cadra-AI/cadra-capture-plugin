@@ -1,16 +1,23 @@
-"""OpenCode (sst/opencode) sessions -> canonical messages (same shape as adapt.py).
-Store (read-only): `$OPENCODE_HOME` or `$XDG_DATA_HOME/opencode` or
-`~/.local/share/opencode`. Docs-inferred fallback (not run on Windows): if that
-directory holds no db and `%LOCALAPPDATA%\\opencode` exists, that is used instead.
+"""OpenCode (sst/opencode) sessions -> canonical messages (same shape as claude.py).
+Store (read-only): `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`
+(`$OPENCODE_HOME` is this plugin's own override; OpenCode has no such variable).
+Docs-inferred fallback (not run on Windows): if that directory holds no db and
+`%LOCALAPPDATA%\\opencode` exists, that is used instead.
 - Db file: `$OPENCODE_DB` when set (absolute = as is, relative = joined to the data
-  dir); otherwise `opencode.db` first, then every `opencode-<channel>.db` (non-stable
-  channels name the db after the channel). Duplicate session ids are read once.
+  dir); otherwise `opencode.db` first, then every `opencode-<channel>.db` (`latest`,
+  `beta` and `prod` share `opencode.db`; dev/snapshot channels get their own).
+  Duplicate session ids are read once.
   Desktop UI state (`ai.opencode.desktop/*.dat`) is not session data and is ignored.
-- Format VERIFIED against opencode 1.18.x on a real machine (structure only): one
-  SQLite file `opencode.db`, opened `mode=ro&immutable=1` so no `-wal`/`-shm` file is
-  created. Tables used: `session` (id, parent_id, directory, time_created,
-  time_updated, version), `message` (session_id, time_created, data JSON with
-  `role`), `part` (message_id, data JSON with `type`).
+- Two layouts, both read; one SQLite file `opencode.db`, opened via
+  `collect.open_sqlite_ro` (read-only, reads the WAL, never creates `-wal`/`-shm`).
+  1.x (VERIFIED against 1.18.x; unchanged through 1.19.4): `session` (id, parent_id,
+  directory, time_created, time_updated, version), `message` (session_id, data JSON
+  with `role`), `part` (message_id, data JSON with `type`).
+  2.x (from source, `anomalyco/opencode` HEAD 2026-10; `brew install opencode` gives
+  2.1): `session_v2` with the same columns, and `session_message` (session_id, type,
+  seq, data) — one row per turn; `user.text`, `assistant.content[]` of `text` /
+  `reasoning` / `tool {id, name, state {status, input, content[], error.message}}`.
+  The 1.x tables are left in place by the upgrade, empty, so `session_v2` wins.
 - The older per-file layout (`storage/session|message|part/*.json`) is NOT read;
   a note says so when only that layout exists. That layout is unverified here.
 - Parts mapped: `text` (user/assistant) and `tool` (call + result; `state.input`,
@@ -53,7 +60,7 @@ def db_candidates(root: Path) -> list[Path]:
         return [path] if path.is_file() else []
     return _db_files(root) if root.is_dir() else []
 def _connect(db: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(f"{db.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    conn = collect.open_sqlite_ro(db)
     conn.row_factory = sqlite3.Row
     return conn
 def _iso(ms: object) -> str | None:
@@ -70,6 +77,15 @@ def _json(raw: object) -> dict:
     except json.JSONDecodeError:
         return {}
     return data if isinstance(data, dict) else {}
+def _session_table(conn: sqlite3.Connection) -> str:
+    """OpenCode 2.x renamed `session` to `session_v2` (and moved the conversation
+    into `session_message`); 1.x stores have only `session`."""
+    names = {r[0] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN "
+        "('session', 'session_v2')")}
+    return "session_v2" if "session_v2" in names else "session"
+
+
 def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[str]]:
     sessions: list[collect.Session] = []
     notes: list[str] = []
@@ -85,8 +101,8 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
         try:
             with _connect(db) as conn:
                 rows = conn.execute(
-                    "SELECT id, parent_id, directory FROM session ORDER BY time_created"
-                ).fetchall()
+                    f"SELECT id, parent_id, directory FROM {_session_table(conn)} "
+                    "ORDER BY time_created").fetchall()
         except sqlite3.Error:
             notes.append(f"opencode: {db.name} could not be read — skipped")
             continue
@@ -112,30 +128,45 @@ def _arguments(raw: object, workspace: Path) -> dict:
             args[key] = adapt.rebase_path(args[key], workspace)
     return args
 def _output(state: dict) -> str:
+    """1.x: `state.output` / `state.error` strings. 2.x: `state.content` items
+    (`text`, or `file` which becomes a placeholder) / `state.error.message`."""
+    if state.get("status") == "error" and isinstance(state.get("error"), dict):
+        return str(state["error"].get("message") or "")
     out = state.get("output") if state.get("status") != "error" else state.get("error")
+    if isinstance(state.get("content"), list):
+        pieces = []
+        for item in state["content"]:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text" and isinstance(item.get("text"), str):
+                pieces.append(item["text"])
+            elif item.get("type") == "file":
+                name = item.get("name") or str(item.get("uri") or "").rsplit("/", 1)[-1]
+                pieces.append(f"[file: {name}]")
+        out = "\n".join(pieces)
     if isinstance(out, str):
         return out
     return json.dumps(out) if out is not None else ""
-def load_session(session: collect.Session, workspace: Path) -> tuple[list[dict], dict]:
-    messages: list[dict] = []
-    unmapped: Counter = Counter()
+
+
+def _tool_messages(call_id: object, name: object, state: dict, workspace: Path) -> list[dict]:
+    out = [{"role": "assistant", "tool_calls": [{
+        "id": call_id, "type": "function",
+        "function": {"name": name, "arguments": _arguments(state.get("input"), workspace)},
+    }]}]
+    if state.get("status") in ("completed", "error"):
+        out.append({"role": "tool", "tool_call_id": call_id, "content": _output(state)})
+    return out
+
+
+def _load_v1(conn: sqlite3.Connection, session_id: str, workspace: Path,
+             messages: list[dict], unmapped: Counter) -> int:
+    """1.x: one `part` row per block, joined to its `message` for the role."""
+    rows = conn.execute(
+        "SELECT m.data AS mdata, p.data AS pdata "
+        "FROM message m JOIN part p ON p.message_id = m.id "
+        "WHERE m.session_id = ? ORDER BY m.time_created, m.id, p.id", (session_id,)).fetchall()
     unreadable = 0
-    started = ended = version = None
-    try:
-        with _connect(session.main_file) as conn:
-            info = conn.execute("SELECT version, time_created, time_updated FROM session "
-                                "WHERE id = ?", (session.session_id,)).fetchone()
-            if info:
-                version = info["version"] or None
-                started, ended = _iso(info["time_created"]), _iso(info["time_updated"])
-            rows = conn.execute(
-                "SELECT m.data AS mdata, m.time_created AS ts, p.data AS pdata "
-                "FROM message m JOIN part p ON p.message_id = m.id "
-                "WHERE m.session_id = ? ORDER BY m.time_created, m.id, p.id",
-                (session.session_id,)).fetchall()
-    except sqlite3.Error:
-        return [], {"cwds": [session.origin_cwd], "started_at": None, "ended_at": None,
-                    "agent_version": "", "unreadable_lines": 1}
     for row in rows:
         role = _json(row["mdata"]).get("role")
         part = _json(row["pdata"])
@@ -151,17 +182,65 @@ def load_session(session: collect.Session, workspace: Path) -> tuple[list[dict],
                 messages.append({"role": role, "content": text})
         elif kind == "tool" and role == "assistant":
             state = part.get("state") if isinstance(part.get("state"), dict) else {}
-            call_id = part.get("callID")
-            messages.append({"role": "assistant", "tool_calls": [{
-                "id": call_id, "type": "function",
-                "function": {"name": part.get("tool"),
-                             "arguments": _arguments(state.get("input"), workspace)},
-            }]})
-            if state.get("status") in ("completed", "error"):
-                messages.append({"role": "tool", "tool_call_id": call_id,
-                                 "content": _output(state)})
+            messages += _tool_messages(part.get("callID"), part.get("tool"), state, workspace)
         else:
             unmapped[kind] += 1
+    return unreadable
+
+
+def _load_v2(conn: sqlite3.Connection, session_id: str, workspace: Path,
+             messages: list[dict], unmapped: Counter) -> int:
+    """2.x: one `session_message` row per turn; the assistant turn carries its
+    text, reasoning and tool blocks in `data.content`. `synthetic` is the injected
+    prompt text (dropped by design, as in 1.x); every other kind is counted."""
+    rows = conn.execute("SELECT type, data FROM session_message WHERE session_id = ? "
+                        "ORDER BY seq", (session_id,)).fetchall()
+    unreadable = 0
+    for row in rows:
+        data = _json(row["data"])
+        kind = row["type"] or data.get("type")
+        if not kind or not data:
+            unreadable += 1
+        elif kind == "synthetic":
+            continue
+        elif kind == "user":
+            if isinstance(data.get("text"), str) and data["text"]:
+                messages.append({"role": "user", "content": data["text"]})
+        elif kind == "assistant":
+            for item in data.get("content") or []:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("type") == "text" and isinstance(item.get("text"), str) \
+                        and item["text"]:
+                    messages.append({"role": "assistant", "content": item["text"]})
+                elif item.get("type") == "tool":
+                    state = item.get("state") if isinstance(item.get("state"), dict) else {}
+                    messages += _tool_messages(item.get("id"), item.get("name"), state,
+                                               workspace)
+                elif item.get("type") != "reasoning":
+                    unmapped[str(item.get("type"))] += 1
+        else:
+            unmapped[kind] += 1
+    return unreadable
+
+
+def load_session(session: collect.Session, workspace: Path) -> tuple[list[dict], dict]:
+    messages: list[dict] = []
+    unmapped: Counter = Counter()
+    started = ended = version = None
+    try:
+        with _connect(session.main_file) as conn:
+            table = _session_table(conn)
+            info = conn.execute(f"SELECT version, time_created, time_updated FROM {table} "
+                                "WHERE id = ?", (session.session_id,)).fetchone()
+            if info:
+                version = info["version"] or None
+                started, ended = _iso(info["time_created"]), _iso(info["time_updated"])
+            load = _load_v2 if table == "session_v2" else _load_v1
+            unreadable = load(conn, session.session_id, workspace, messages, unmapped)
+    except sqlite3.Error:
+        return [], {"cwds": [session.origin_cwd], "started_at": None, "ended_at": None,
+                    "agent_version": "", "unreadable_lines": 1}
     meta = {"cwds": [session.origin_cwd], "started_at": started, "ended_at": ended,
             "agent_version": version or "", "unreadable_lines": unreadable}
     if unmapped:

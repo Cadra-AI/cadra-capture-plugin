@@ -18,7 +18,7 @@ agent's published docs, plugin not run there; **untested** = inferred only.
 | Codex CLI | run | docs | docs | `~/.codex/sessions` (`CODEX_HOME`); `%USERPROFILE%\.codex\sessions` on Windows |
 | Kiro | run | docs | docs | `~/.kiro/sessions` (`KIRO_HOME`); v3 `cli/` layout verified on macOS, Windows `%USERPROFILE%\.kiro\sessions\cli\` is inferred from `~` |
 | Copilot CLI | run | docs | docs | `~/.copilot/session-state` (`COPILOT_HOME`); `%USERPROFILE%\.copilot\session-state` on Windows |
-| Cursor CLI | run | docs | docs | `~/.cursor` (`CURSOR_HOME`); `%USERPROFILE%\.cursor` on Windows |
+| Cursor CLI | run | docs | docs | transcripts `~/.cursor` (no override); `chats/` under `CURSOR_CONFIG_DIR` or `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`; `%USERPROFILE%\.cursor` on Windows |
 | Antigravity (`agy`) | run | docs | docs | `~/.gemini/antigravity-cli` via `HOME` / `USERPROFILE` on Windows (`ANTIGRAVITY_HOME` is this plugin's own override); docs are third-party (SpecStory, txcript) |
 | OpenCode | run | docs | docs | `~/.local/share/opencode` (`OPENCODE_HOME`, `XDG_DATA_HOME`); `%USERPROFILE%\.local\share\opencode` on Windows (fallback `%LOCALAPPDATA%\opencode` only if the default has no db); `OPENCODE_DB` picks the db file |
 
@@ -55,9 +55,9 @@ they are. These stores are read-only to the plugin; it never writes there:
 | Codex CLI | `$CODEX_HOME/sessions/` or `~/.codex/sessions/` (`YYYY/MM/DD/rollout-*.jsonl`) |
 | Kiro | `$KIRO_HOME` or `~/.kiro`, then `sessions/`: both v3 layouts are read, `<hash>/sess_<id>/` (`session.json`, `messages.jsonl`, `sub-executions/`; `tool-outputs/` is never opened) and `cli/<uuid>.json` + `<uuid>.jsonl` (`.history` and `.lock` are never opened). Older v1/v2 `data.sqlite3` is not read; a note appears when it holds conversations |
 | Copilot CLI | `$COPILOT_HOME` or `~/.copilot`, then `session-state/<id>/events.jsonl` |
-| Cursor CLI | `$CURSOR_HOME` or `~/.cursor`: `projects/*/agent-transcripts/` and `chats/*/<id>/meta.json` (the working directory); `store.db` is never opened |
-| OpenCode | `$OPENCODE_HOME` or `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`: `$OPENCODE_DB` if set, else `opencode.db` then any `opencode-<channel>.db` (SQLite, opened read-only and immutable); `auth.json` and the desktop `.dat` files are never opened |
-| Antigravity CLI (`agy`) | `$ANTIGRAVITY_HOME` or `~/.gemini/antigravity-cli`: `conversations/<id>.db` (SQLite, opened read-only and immutable, so no `-wal`/`-shm` file is created) and `history.jsonl` (working-directory fallback); `<id>.pb` conversations are counted, never read. `brain/<id>/` (artifacts and a JSONL transcript) is a separate store and is not read |
+| Cursor CLI | `~/.cursor/projects/*/agent-transcripts/` (transcripts; Cursor hard-codes the home dir) and `chats/*/<id>/meta.json` (the working directory) under the config dir — `$CURSOR_CONFIG_DIR`, else `$XDG_CONFIG_HOME/cursor`, else `~/.cursor`; `store.db` is never opened |
+| OpenCode | `$OPENCODE_HOME` or `$XDG_DATA_HOME/opencode` or `~/.local/share/opencode`: `$OPENCODE_DB` if set, else `opencode.db` then any `opencode-<channel>.db` (SQLite, opened read-only, WAL included; 1.x `session`/`message`/`part` and 2.x `session_v2`/`session_message` are both read); `auth.json` and the desktop `.dat` files are never opened |
+| Antigravity CLI (`agy`) | `$ANTIGRAVITY_HOME` or `~/.gemini/antigravity-cli`: `conversations/<id>.db` (SQLite, opened read-only, WAL included, so no `-wal`/`-shm` file is created) and `history.jsonl` (working-directory fallback); `<id>.pb` conversations are counted, never read. `brain/<id>/` (artifacts and a JSONL transcript) is a separate store and is not read |
 
 System prompts, steering files, reasoning and account ids recorded by the host
 are dropped before anything is previewed or sent.
@@ -70,12 +70,14 @@ are dropped before anything is previewed or sent.
 - **Cursor** does not record tool outputs, so file contents that tools read or
   produced are not in its transcripts; the submit prints a note per session.
 - **Antigravity** publishes no schema for its chat files. The reader was written by
-  observing `agy` 1.3.1 and is unverified: it carries over user prompts, assistant
-  text, tool calls and `view_file` results only. Every other step is skipped and the
-  submit prints a note with the count. Conversations stored as `.pb` files are not
+  observing `agy` 1.3.x and is unverified: it carries over user prompts, assistant
+  text, tool calls and tool results (step type 132 on current agy; the older per-tool
+  type 8 for `view_file`). Every other step is skipped and the submit prints a note
+  with the count. Conversations stored as `.pb` files are not
   supported (one note counts them).
-- **OpenCode** is read from its SQLite store (`opencode.db`), verified against
-  opencode 1.18.x. Reasoning, injected prompts and provider ids are dropped; other
+- **OpenCode** is read from its SQLite store (`opencode.db`): the 1.x layout verified
+  against 1.18.x, and the 2.x layout (`brew install opencode` since Oct 2026) from
+  source. Reasoning, injected prompts and provider ids are dropped; other
   part types (patches, files, compactions) are counted in a note. Sub-agent
   sessions are not included. The older JSON-file layout is not supported.
 - **Copilot CLI**: the conversation format is taken from published docs and has not
@@ -141,17 +143,27 @@ py -3 "$S\cadra_traces.py"  --workspace $W
 
 ## Local proxy testing
 
-`cadra-connect` only accepts `https://` proxy URLs, so a proxy on `localhost`
-needs a tunnel, for example `cloudflared tunnel --url http://localhost:8787`.
-Install `cloudflared` with `brew install cloudflared` (macOS),
-`winget install Cloudflare.cloudflared` (Windows; open a new terminal after), or
-on Linux the package/binary from Cloudflare's downloads page (unrun here).
-Connect with the address it prints (base address only, no `/v1`). Quick-tunnel
-addresses change every run, so connect again with the new one.
+No tunnel needed. Plain `http://` is accepted on `localhost`, `127.0.0.1` or `::1`
+**with a port** (anything else must be `https://`). Point every script at the local
+proxy in one of two ways:
+
+- for the shell session: `export CADRA_PROXY_BASE_URL=http://localhost:8787`
+  (PowerShell: `$env:CADRA_PROXY_BASE_URL = "http://localhost:8787"`). Connect, submit
+  and traces all follow it, in every workspace, and nothing is written to
+  `.cadra/config.json`; unset it and the workspace is back on the built-in default.
+- for one workspace: `cadra_connect.py --proxy http://localhost:8787`. This pins the
+  address in that workspace's `config.json` until you connect again.
+
+Either way the production address never has to be edited: it stays the built-in
+default and is only used when neither override is set. A tunnel
+(`cloudflared tunnel --url http://localhost:8787`) is only needed to reach a local
+proxy from *another* machine.
 
 
 ## Tests
 
 Run the tests with `python -m pytest -q` from the repository root. Two tests in
-`tests/test_adapt.py` use Windows-style `C:/` paths and fail on macOS and Linux;
-they fail the same way on the original code.
+`tests/test_extraction_parity.py` are skipped unless `CADRA_PROTOTYPE_ROOT` points at
+a cadra-prototype checkout (they compare the plugin's extraction with the server's).
+One test module per host reader (`test_claude.py`, `test_codex.py`, ...); the shared
+helpers are covered by `test_adapt.py` and the host-independent suites.

@@ -1,17 +1,22 @@
-"""Codex CLI rollouts -> canonical messages (same shape as adapt.py).
+"""Codex CLI rollouts -> canonical messages (same shape as claude.py).
 
-Store (read-only): `$CODEX_HOME/sessions` or `~/.codex/sessions`, laid out as
-`YYYY/MM/DD/rollout-*.jsonl`. Every line is `{"timestamp", "type", "payload"}`.
+Store (read-only): `$CODEX_HOME/sessions` or `~/.codex/sessions` (plus the sibling
+`archived_sessions/`), laid out as `YYYY/MM/DD/rollout-*.jsonl`. Every line is
+`{"timestamp", "type", "payload"}`.
 
-- Line 1 is `session_meta`: `payload.cwd` scopes the session, `payload.session_id`
-  (older rollouts: `payload.id`) names it, `cli_version` is the agent version. It
-  also carries the full system prompt (`base_instructions`) and account ids
+- Line 1 is `session_meta`: `payload.cwd` scopes the session, `payload.id` names it
+  (`payload.session_id` is the root thread, shared by sub-agent rollouts), and
+  `cli_version` is the agent version. It also carries the full system prompt
+  (`base_instructions`) and account ids
   (`creator_user_id`, `creator_account_id`); none of that is ever sent.
 - `response_item` payloads are the conversation: `message` (user | assistant |
   developer), `function_call {name, arguments: JSON string, call_id}`,
   `function_call_output {call_id, output}`, `custom_tool_call {name, input,
-  call_id}` (apply_patch), `custom_tool_call_output`, `reasoning`. Only user and
-  assistant messages and the four tool kinds are kept.
+  call_id}` (apply_patch), `custom_tool_call_output`, `local_shell_call {call_id,
+  action {command[], working_directory}}` + `local_shell_call_output`,
+  `web_search_call {id, action}`, `reasoning`. Only user and assistant messages and
+  those tool kinds are kept; `tool_search_*`, `image_generation_call`, `compaction`
+  and friends are dropped.
 - `event_msg` duplicates response items and `turn_context` is settings; both are
   dropped, except that `turn_context.cwd` is recorded in `meta.cwds`.
 - Codex injects host context as user messages (`<environment_context>` etc.);
@@ -27,11 +32,22 @@ from cadra import adapt, collect
 
 MAX_META_BYTES = 1024 * 1024
 HOST = "codex"
-#: User-role texts that Codex writes itself rather than the candidate.
-_INJECTED_PREFIXES = ("<environment_context>", "<user_instructions>",
-                      "# AGENTS.md instructions", "<turn_aborted>")
+#: User-role texts that Codex writes itself rather than the candidate. Each is a
+#: `ContextualUserFragment` in codex-rs (core/src/context, ext/skills, plugins);
+#: `<skill>` carries the whole SKILL.md body, so missing it attributed the
+#: plugin's own instructions to the candidate. `<user_instructions>` is gone from
+#: current Codex (it lives in turn_context now) but older rollouts still have it.
+_INJECTED_PREFIXES = (
+    "<environment_context>", "<user_instructions>", "# AGENTS.md instructions",
+    "<turn_aborted>", "<skill>", "<user_shell_command>", "<subagent_notification>",
+    "<agent_message_board_notification>", "<current_time_reminder>",
+    "<current_time_unavailable>", "<model_switch>", "<image_resize_notice>",
+    "<user_verification_notice>", "<content_filter_guidance>", "<recommended_plugins>",
+    "<realtime_delegation>", "<codex_internal_context", "<plugin>", "<marketplace>",
+)
 _KEPT_ITEMS = ("message", "function_call", "function_call_output",
-               "custom_tool_call", "custom_tool_call_output")
+               "custom_tool_call", "custom_tool_call_output",
+               "local_shell_call", "local_shell_call_output", "web_search_call")
 
 open_text = open  # indirection so tests can observe which files are opened
 
@@ -65,7 +81,12 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
     notes: list[str] = []
     if not root.is_dir():
         return sessions, notes
-    for path in sorted(root.glob("*/*/*/rollout-*.jsonl")):
+    # Archiving a thread in the TUI moves its rollout to the sibling
+    # `archived_sessions/` tree (same YYYY/MM/DD layout); still the candidate's work.
+    paths = sorted(root.glob("*/*/*/rollout-*.jsonl"))
+    if root.name == "sessions":  # only beside the real store, not a test override
+        paths += sorted((root.parent / "archived_sessions").glob("*/*/*/rollout-*.jsonl"))
+    for path in paths:
         meta, reason = _read_meta(path)
         if meta is None:
             notes.append(f"codex {path.name}: {reason} — skipped")
@@ -74,7 +95,9 @@ def discover(root: Path, workspace: Path) -> tuple[list[collect.Session], list[s
         if not isinstance(cwd, str) or not cwd:
             notes.append(f"codex {path.name}: no working directory recorded — skipped")
             continue
-        session_id = meta.get("session_id") or meta.get("id") or path.stem
+        # `id` is this thread; `session_id` is the ROOT thread, shared by every
+        # sub-agent rollout of it (older rollouts have `id` only).
+        session_id = meta.get("id") or meta.get("session_id") or path.stem
         if not collect.in_scope(cwd, workspace):
             notes.append(f"{str(session_id)[:8]}: started elsewhere ({cwd}) — not included")
             continue
@@ -139,13 +162,27 @@ def _to_message(item: dict, workspace: Path) -> dict | None:
         if role == "user" and text.lstrip().startswith(_INJECTED_PREFIXES):
             return None
         return {"role": role, "content": text}
+    call_id, name = item.get("call_id"), item.get("name")
     if kind == "function_call":
         args = _arguments(item.get("arguments"), workspace)
     elif kind == "custom_tool_call":
         # apply_patch input is a raw patch; its paths are not rebased (plan D6).
         raw = item.get("input")
         args = {"input": raw if isinstance(raw, str) else ""}
-    elif kind in ("function_call_output", "custom_tool_call_output"):
+    elif kind == "local_shell_call":
+        # Responses-API shell exec: {call_id?, id, action {command[], working_directory?}}.
+        action = item.get("action") if isinstance(item.get("action"), dict) else {}
+        args = {k: v for k, v in action.items() if k in ("command", "working_directory")}
+        if isinstance(args.get("working_directory"), str):
+            args["working_directory"] = adapt.rebase_path(args["working_directory"], workspace)
+        call_id, name = call_id or item.get("id"), "local_shell"
+    elif kind == "web_search_call":
+        # {id, status, action {type: search|open_page|find, query|url|pattern}}; no
+        # output item is recorded, only the action the agent took.
+        action = item.get("action") if isinstance(item.get("action"), dict) else {}
+        call_id, name, args = item.get("id"), "web_search", dict(action)
+    elif kind in ("function_call_output", "custom_tool_call_output",
+                  "local_shell_call_output"):
         output = item.get("output")
         if not isinstance(output, str):
             output = json.dumps(output) if output is not None else ""
@@ -153,8 +190,8 @@ def _to_message(item: dict, workspace: Path) -> dict | None:
     else:
         return None
     return {"role": "assistant", "tool_calls": [{
-        "id": item.get("call_id"), "type": "function",
-        "function": {"name": item.get("name"), "arguments": args},
+        "id": call_id, "type": "function",
+        "function": {"name": name, "arguments": args},
     }]}
 
 

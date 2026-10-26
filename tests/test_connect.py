@@ -244,7 +244,10 @@ def test_connect_without_a_proxy_flag_uses_the_built_in_default(
     _paste(workspace, _token())
     assert cadra_connect.main(["--workspace", str(workspace)]) == 0
     cfg = config.load(workspace)
-    assert cfg["proxy_base_url"] == config.DEFAULT_PROXY_BASE_URL
+    # Not pinned: the workspace follows whatever default the installed plugin
+    # carries, so a release that moves the proxy needs no reconnect.
+    assert cfg["proxy_base_url"] == ""
+    assert config.resolve_proxy("", cfg["proxy_base_url"]) == config.DEFAULT_PROXY_BASE_URL
 
 
 def test_connect_honours_the_environment_override(workspace: Path, monkeypatch):
@@ -266,7 +269,10 @@ def test_a_proxy_base_url_claim_in_the_token_is_ignored(workspace: Path, monkeyp
     _paste(workspace, _token_with({"proxy_base_url": "https://attacker.example"}))
     assert cadra_connect.main(["--workspace", str(workspace)]) == 0
     cfg = config.load(workspace)
-    assert cfg["proxy_base_url"] == config.DEFAULT_PROXY_BASE_URL
+    # Not pinned: the workspace follows whatever default the installed plugin
+    # carries, so a release that moves the proxy needs no reconnect.
+    assert cfg["proxy_base_url"] == ""
+    assert config.resolve_proxy("", cfg["proxy_base_url"]) == config.DEFAULT_PROXY_BASE_URL
     assert "attacker" not in cfg["proxy_base_url"]
 
 

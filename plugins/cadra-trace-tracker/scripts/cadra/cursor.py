@@ -1,6 +1,8 @@
 """Cursor CLI (`agent`, formerly `cursor-agent`) transcripts -> canonical messages
-(same shape as adapt.py).
-Store (read-only): `$CURSOR_HOME` or `~/.cursor`.
+(same shape as claude.py).
+Store (read-only): transcripts under `~/.cursor` (Cursor hard-codes the home dir);
+`chats/` under the config dir, `$CURSOR_CONFIG_DIR` or `$XDG_CONFIG_HOME/cursor` or
+`~/.cursor`, so on Linux with XDG set the two trees are apart and both are checked.
 - Transcript: `projects/<slug>/agent-transcripts/<uuid>/<uuid>.jsonl` (a flat
   `<uuid>.jsonl` under `agent-transcripts/` is also accepted). Legacy `*.txt` files and
   `subagents/` folders are ignored. `<slug>` is a lossy path encoding and is never
@@ -24,11 +26,24 @@ MAX_META_BYTES = 256 * 1024
 HOST = "cursor"
 open_text = open  # indirection so tests can observe which files are opened
 def default_root() -> Path:
-    home = os.environ.get("CURSOR_HOME")
-    return Path(home) if home else Path.home() / ".cursor"
+    """Transcripts: Cursor builds this from the home dir alone, no override."""
+    return Path.home() / ".cursor"
+
+
+def config_root() -> Path:
+    """`chats/` lives under Cursor's config dir: `CURSOR_CONFIG_DIR`, else
+    `$XDG_CONFIG_HOME/cursor`, else `~/.cursor` (cursor-config/dist/paths.js)."""
+    explicit = os.environ.get("CURSOR_CONFIG_DIR")
+    if explicit:
+        return Path(explicit)
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    return Path(xdg) / "cursor" if xdg else Path.home() / ".cursor"
 def _read_meta(root: Path, uuid: str) -> tuple[dict | None, str]:
     """-> (meta.json contents, reason it is unusable). Bounded read."""
     found = sorted(root.glob(f"chats/*/{uuid}/meta.json"))
+    if not found and config_root() != root:
+        # XDG_CONFIG_HOME / CURSOR_CONFIG_DIR move chats/ away from the transcripts.
+        found = sorted(config_root().glob(f"chats/*/{uuid}/meta.json"))
     if not found:
         return None, "no session metadata found"
     try:

@@ -6,10 +6,11 @@
     python3 install_opencode.py --uninstall  # remove only what this script wrote
     python3 install_opencode.py --dry-run    # print the plan, write nothing
 
-OpenCode does not follow symlinks and a copied skill is no longer two folders under
-the plugin, so the absolute plugin root is written into the copied SKILL.md files in
-place of the <PLUGIN_ROOT> token. No environment variable or shell profile is touched.
-Re-running (for example after `git pull`) refreshes the copies.
+A copied skill is no longer two folders under the plugin, so the absolute plugin root
+is written into the copied SKILL.md files in place of the <PLUGIN_ROOT> token (that
+rewrite, not symlink handling, is why the skills are copied rather than linked). No
+environment variable or shell profile is touched. Re-running (for example after `git
+pull`) refreshes the copies.
 """
 import argparse
 import os

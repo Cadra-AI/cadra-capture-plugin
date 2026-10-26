@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 import cadra_submit
-from cadra import collect, config
+from cadra import claude, config
 from tests.conftest import write_jsonl
 
 REPO = Path(__file__).resolve().parents[1]
@@ -47,7 +47,7 @@ def _payload(workspace: Path, transcripts: Path, entries: list[dict]) -> dict:
     """Run the real pipeline and return exactly what would have been sent."""
     config.save(workspace, {"token": "tok", "workspace_root": str(workspace),
                             "proxy_base_url": "https://proxy.test"})
-    encoded = collect.encode_dir_name(workspace.resolve())
+    encoded = claude.encode_dir_name(workspace.resolve())
     write_jsonl(transcripts / encoded / "s1.jsonl", entries)
     assert cadra_submit.main(["--workspace", str(workspace),
                               "--projects-root", str(transcripts),

@@ -17,6 +17,14 @@ from cadra.repo import git_remote, strip_credentials  # noqa: F401
 TIMEOUT_S = 20
 
 
+def cfg_stored_proxy(workspace: Path) -> str:
+    """The pin an earlier connect left in config.json, "" when none."""
+    try:
+        return str(config.load(workspace).get("proxy_base_url") or "")
+    except (OSError, ValueError):
+        return ""
+
+
 def verify_token(*, proxy_base_url: str, token: str,
                  workspace_root: str = "") -> tuple[bool, str]:
     """Prove the token and claim this folder in one call (§5.1).
@@ -175,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     # so a proxy_base_url claim would be unauthenticated input choosing where a
     # bearer credential is sent. The address is the same for every candidate in
     # an environment, so it is client config — see config.DEFAULT_PROXY_BASE_URL.
-    proxy = config.resolve_proxy(args.proxy)
+    proxy = config.resolve_proxy(args.proxy, cfg_stored_proxy(workspace))
     # Same predicate client enforces, so connect and submit can never disagree
     # about what is reachable.
     if not client.is_allowed_base_url(proxy):
@@ -198,7 +206,10 @@ def main(argv: list[str] | None = None) -> int:
         "assessment_label": args.label,
         "workspace_root": str(workspace).replace("\\", "/"),
         "git_remote": git_remote(workspace),
-        "proxy_base_url": proxy.rstrip("/"),
+        # Pinned only when given explicitly (--proxy / CADRA_PROXY_BASE_URL). A
+        # workspace connected to the built-in default keeps following the default,
+        # so a release that moves the proxy needs no reconnect anywhere.
+        "proxy_base_url": config.explicit_proxy(args.proxy),
         "connected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     })
     # The paste file has done its job. Two plaintext copies of the token is one

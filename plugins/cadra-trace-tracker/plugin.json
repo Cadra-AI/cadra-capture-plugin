@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "cadra-trace-tracker",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "description": "Submit your coding-agent work sessions (Claude Code, Codex, Kiro, Copilot CLI, Cursor, Antigravity, OpenCode) to Cadra for assessment. Skills only: nothing is read or sent unless you ask. All state lives in the workspace's .cadra/ folder, which is gitignored.",
   "author": {
     "name": "Cadra",

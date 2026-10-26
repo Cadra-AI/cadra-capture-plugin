@@ -67,7 +67,7 @@ def test_onboarding_skill_is_cadra_connect():
 
 
 def test_versions_agree_across_manifests():
-    assert _load(ROOT_MANIFEST)["version"] == _load(CLAUDE_MANIFEST)["version"] == "3.1.0"
+    assert _load(ROOT_MANIFEST)["version"] == _load(CLAUDE_MANIFEST)["version"] == "3.2.0"
 
 
 def test_claude_description_matches_root():

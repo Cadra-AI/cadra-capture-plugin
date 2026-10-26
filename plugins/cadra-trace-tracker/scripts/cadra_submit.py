@@ -20,24 +20,19 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
-from cadra import (adapt, antigravity, client, codex, collect, config, copilot, cursor,
-                   envelope, kiro, opencode, redact, repo)
+from cadra import (adapt, antigravity, claude, client, codex, collect, config, copilot,
+                   cursor, envelope, kiro, opencode, redact, repo)
 
 CAPTURE_VERSION = "3.0.0"
 
 
 #: host name -> (default transcript root, discover, load_session). The name is
 #: also what the chunk reports as `agent.name`. Every root is read-only.
-def _claude_root() -> Path:
-    home = os.environ.get("CLAUDE_CONFIG_DIR")
-    return (Path(home) if home else Path.home() / ".claude") / "projects"
 HOSTS = {
-    "claude-code": (_claude_root,
-                    collect.discover, adapt.load_session),
+    claude.HOST: (claude.default_root, claude.discover, claude.load_session),
     codex.HOST: (codex.default_root, codex.discover, codex.load_session),
     kiro.HOST: (kiro.default_root, kiro.discover, kiro.load_session),
     copilot.HOST: (copilot.default_root, copilot.discover, copilot.load_session),
@@ -126,6 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             pass
     parser = argparse.ArgumentParser()
     parser.add_argument("--workspace", default=".")
+    parser.add_argument("--proxy", default="", help="override the proxy address for this run")
     parser.add_argument("--host", action="append", choices=list(HOSTS),
                         help="only collect this host's sessions (repeatable; default all)")
     parser.add_argument("--claude-root", default=None)
@@ -153,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
               "Run cadra-connect first.")
         return 1
     cfg = config.load(workspace)
+    proxy = config.resolve_proxy(args.proxy, cfg.get("proxy_base_url", ""))
     state = _load_state(workspace)
     branch = repo.git_branch(workspace)
     remote = current_remote(workspace)
@@ -265,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
                 "messages": chunk_messages,
             }
             status, payload = client.post_chunk(
-                base_url=cfg["proxy_base_url"], token=cfg["token"], body=body)
+                base_url=proxy, token=cfg["token"], body=body)
             # A 2xx carrying `accepted: false` is a refusal wearing a success
             # code. §10: never report success the server did not state.
             if status in (200, 202) and payload.get("accepted") is False:

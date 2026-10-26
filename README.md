@@ -75,8 +75,9 @@ codex plugin marketplace add Cadra-AI/cadra-capture-plugin
 codex plugin add cadra-trace-tracker@cadra
 ```
 
-Check: `codex plugin list`. In Codex, type `$cadra-connect` (or say "connect to
-Cadra"); `/skills` also lists the three skills.
+Check: `codex plugin list`. In Codex, type `$cadra-trace-tracker:cadra-connect`
+(plugin skills are namespaced; or just say "connect to Cadra"); `/skills` also
+lists the three skills.
 
 ### GitHub Copilot CLI
 
@@ -177,8 +178,9 @@ copies; run the installer again.
   plugin folder: `~/cadra-capture-plugin/plugins/cadra-trace-tracker` on
   macOS/Linux, `%USERPROFILE%\cadra-capture-plugin\plugins\cadra-trace-tracker`
   on Windows. Then say "connect to Cadra".
-- **Kiro CLI:** it has no plugin command. Use the IDE power, or run the scripts
-  directly (see "Running the scripts directly" below).
+- **Kiro CLI:** `kiro-cli powers install <folder>` exists (2.30+) but is undocumented
+  and currently mis-registers the power (kirodotdev/Kiro#11924), so use the IDE power,
+  or run the scripts directly (see "Running the scripts directly" below).
 
 The GitHub install gives whatever is on `main`, which now includes the readers
 for every agent listed above.
@@ -227,12 +229,14 @@ Both live assessment tokens and offline-capture tokens are accepted. You see
 Already connected? Do not connect again. `token.txt` is deleted after a
 successful connect, so a "no token file" message only means you are done.
 
-**Which server it talks to.** The plugin resolves this itself, in order:
-`--proxy <url>`, then the `CADRA_PROXY_BASE_URL` environment variable, then its
-built-in default. You never have to supply it, and the agent is told not to
-invent one. The resolved value is stored in `.cadra/config.json` at connect time
-and nothing else changes it; to switch servers, put the token back in
-`.cadra/token.txt` and connect again with the new address.
+**Which server it talks to.** One rule, used by connect, submit and traces alike:
+`--proxy <url>` on the command, then the `CADRA_PROXY_BASE_URL` environment
+variable, then the address pinned in `.cadra/config.json` (only there if connect
+was given one explicitly), then the plugin's built-in default. You never have to
+supply it, and the agent is told not to invent one. Moving the proxy is therefore
+one change: a new default in a release moves every workspace that never pinned
+an address, and setting `CADRA_PROXY_BASE_URL` moves all of them at once — no
+reconnect, no edits to any file.
 
 `https://` is required, with one exception: plain `http://` is accepted on
 `localhost`, `127.0.0.1` or `::1` **with a port**, for running against a local
@@ -309,7 +313,8 @@ plugins/cadra-trace-tracker/
   scripts/cadra_connect.py               connect entry point
   scripts/cadra_submit.py                submit entry point
   scripts/cadra_traces.py                list entry point
-  scripts/cadra/                         collect, adapt, redact, envelope, client
+  scripts/cadra/                         shared: collect, adapt, redact, envelope, client
+  scripts/cadra/claude.py                Claude Code transcript reader
   scripts/cadra/codex.py                 Codex CLI rollout reader
   scripts/cadra/kiro.py                  Kiro session reader
   scripts/cadra/copilot.py               Copilot CLI session reader

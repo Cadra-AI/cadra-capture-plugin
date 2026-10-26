@@ -7,7 +7,7 @@ from pathlib import Path, PureWindowsPath
 
 import pytest
 
-from cadra import adapt, antigravity, codex, collect, copilot, cursor, kiro, opencode
+from cadra import claude, adapt, antigravity, codex, collect, copilot, cursor, kiro, opencode
 
 WIN_WS = Path("C:/Users/x/proj")
 
@@ -45,7 +45,7 @@ def test_posix_paths_still_rebase(tmp_path):
 
 
 def test_claude_dir_encoding_matches_for_windows_workspace():
-    name = collect.encode_dir_name(PureWindowsPath("C:\\Users\\x\\proj"))
+    name = claude.encode_dir_name(PureWindowsPath("C:\\Users\\x\\proj"))
     assert name == "C--Users-x-proj"
 
 
@@ -98,11 +98,11 @@ def test_default_roots_follow_home_and_env(monkeypatch, tmp_path):
 
 def test_env_overrides_win(monkeypatch, tmp_path):
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / "c"))
-    monkeypatch.setenv("CURSOR_HOME", str(tmp_path / "u"))
+    monkeypatch.setenv("CURSOR_CONFIG_DIR", str(tmp_path / "u"))
     monkeypatch.setenv("ANTIGRAVITY_HOME", str(tmp_path / "a"))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "x"))
     assert codex.default_root() == tmp_path / "c" / "sessions"
-    assert cursor.default_root() == tmp_path / "u"
+    assert cursor.config_root() == tmp_path / "u"  # transcripts root has no override
     assert antigravity.default_root() == tmp_path / "a"
     assert opencode.default_root() == tmp_path / "x" / "opencode"
     monkeypatch.setenv("OPENCODE_HOME", str(tmp_path / "o"))
@@ -127,16 +127,15 @@ def test_sqlite_uri_survives_spaces(tmp_path):
 
 
 def test_kiro_copilot_claude_env_overrides(monkeypatch, tmp_path):
-    import cadra_submit
     monkeypatch.setenv("KIRO_HOME", str(tmp_path / "k"))
     monkeypatch.setenv("COPILOT_HOME", str(tmp_path / "p"))
     monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "cl"))
     assert kiro.default_root() == tmp_path / "k" / "sessions"
     assert copilot.default_root() == tmp_path / "p" / "session-state"
-    assert cadra_submit._claude_root() == tmp_path / "cl" / "projects"
+    assert claude.default_root() == tmp_path / "cl" / "projects"
     monkeypatch.delenv("CLAUDE_CONFIG_DIR")
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: tmp_path))
-    assert cadra_submit._claude_root() == tmp_path / ".claude" / "projects"
+    assert claude.default_root() == tmp_path / ".claude" / "projects"
 
 
 def test_windows_style_roots_join_under_userprofile():
