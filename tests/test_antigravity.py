@@ -12,8 +12,10 @@ def _db(root: Path, name: str = AGY_ID) -> Path:
 
 def test_session_found_via_trajectory_cwd(agy_root: Path, workspace: Path):
     sessions, notes = antigravity.discover(agy_root, workspace)
-    assert [(s.session_id, s.host, s.origin_cwd) for s in sessions] == [
-        (AGY_ID, "antigravity", str(workspace))]
+    # Path objects: the reader decodes a file:// URI to forward slashes, which on
+    # Windows is the same path as str(workspace) but not the same string.
+    assert [(s.session_id, s.host, Path(s.origin_cwd)) for s in sessions] == [
+        (AGY_ID, "antigravity", workspace)]
     assert any("reverse-engineered and unverified" in n for n in notes)
 
 
@@ -103,7 +105,7 @@ def test_messages_tool_calls_results_and_rebase(agy_root: Path, workspace: Path)
     assert messages[2]["tool_call_id"] == "antigravity-1"
     assert messages[2]["content"] == "# hi\n"
     assert messages[0]["client_ts"] == "2026-08-06T07:06:40.250Z"
-    assert meta["cwds"] == [str(workspace)]
+    assert [Path(c) for c in meta["cwds"]] == [workspace]
     assert meta["started_at"] == "2026-08-06T07:06:40.250Z"
     assert meta["ended_at"] == "2026-08-06T07:07:00.250Z"
     assert meta["agent_version"] == "" and meta["unreadable_lines"] == 0
